@@ -47,7 +47,7 @@ This profile requires a lossless original file. JPEG re-encoding, resizing, scre
 
 Each bit sets the parity of the nearest coefficient quantization index using step 18. The minimal compatible target is approached with up to six RGB correction passes to handle clipping/rounding. The decoder rounds the same coefficient/step and reads its parity, then majority/Hamming/CRC checks apply.
 
-Blocks are row-major then shuffled with xorshift32 seed `0x44535431` and descending Fisher-Yates. Capacity is one physical slot per complete block, so a packet needs N×42 blocks. Small carriers may be enlarged and dimensions round to an 8-pixel grid. This can add faint texture; it does not promise invisibility or social-platform survival. Tested JPEG qualities are documented separately. Resizing/cropping changes block correspondence and can break recovery.
+Blocks are row-major then shuffled with xorshift32 seed `0x44535431` and descending Fisher-Yates. Capacity is one physical slot per complete block, so a packet needs N×42 blocks. Small carriers may be enlarged and dimensions round to an 8-pixel grid. Large carriers are never shrunk. Output is a JPEG, tried at quality 85%, then 92% and 97%; the first export that reloads with the exact packet is offered, with PNG as the final fallback. This can add faint texture; it does not promise invisibility or social-platform survival. Tested JPEG qualities are documented separately. Resizing/cropping changes block correspondence and can break recovery.
 
 ## Earlier block profile — decoding compatibility
 

@@ -97,6 +97,10 @@ try {
       true,
       await page.locator('#encode-status').innerText(),
     );
+    assert.match(
+      await page.locator('#encoded-info').innerText(),
+      method === 'subtle' ? / · PNG · / : / · JPEG \d+% · /,
+    );
   }
   async function reveal(password = '') {
     await page.locator('#try-decode').click();
@@ -219,7 +223,8 @@ try {
     page.waitForEvent('download'),
     page.locator('#download').click(),
   ]);
-  const encoded = path.join(out, 'portable-contact.png');
+  assert.equal(download[0].suggestedFilename(), 'packrat-image.jpg');
+  const encoded = path.join(out, 'portable-contact.jpg');
   await download[0].saveAs(encoded);
   const second = await chromium.launch(options);
   try {

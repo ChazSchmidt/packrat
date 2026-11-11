@@ -21,6 +21,13 @@ let encodeRevision = 0,
 let payloadType = null;
 const contactDrafts = { card: '', paper: '', lxmf: '', identity: '' };
 const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
+// Photo-mode export tries JPEG first, rising in quality, and falls back to PNG.
+const PHOTO_EXPORTS = [
+  ['image/jpeg', 0.85],
+  ['image/jpeg', 0.92],
+  ['image/jpeg', 0.97],
+  ['image/png'],
+];
 function status(id, text, kind = '') {
   $(id).textContent = text;
   $(id).dataset.kind = kind;
@@ -293,6 +300,20 @@ function blobFor(canvas, type = 'image/png', quality) {
     ),
   );
 }
+// Export in the first format that reloads with the exact packet intact.
+async function exportVerified(canvas, packet, attempts) {
+  for (const [type, quality] of attempts) {
+    const blob = await blobFor(canvas, type, quality);
+    if (blob.type !== type) continue; // Browser substituted another format.
+    const { pixels } = await loadImage(new File([blob], 'check', { type }));
+    try {
+      const found = extract(pixels);
+      if (found.data.length === packet.length && found.data.every((b, i) => b === packet[i]))
+        return { blob, found, quality };
+    } catch {}
+  }
+  throw new Error('The image did not pass its round-trip check. Try another image.');
+}
 $('encode-form').onsubmit = async (e) => {
   e.preventDefault();
   if (!payloadType) return;
@@ -334,22 +355,24 @@ $('encode-form').onsubmit = async (e) => {
       );
     embed(pixels, packet, method);
     canvas.getContext('2d').putImageData(pixels, 0, 0);
-    // Verify after PNG serialization and reload, not only the in-memory pixels.
-    const blob = await blobFor(canvas),
-      check = await loadImage(new File([blob], 'check.png', { type: 'image/png' }));
-    const found = extract(check.pixels);
-    if (found.data.length !== packet.length || !found.data.every((b, i) => b === packet[i]))
-      throw new Error('The image did not pass its round-trip check. Try another image.');
+    // Verify the exact exported file after reload, not only the in-memory pixels.
+    const { blob, found, quality } = await exportVerified(
+      canvas,
+      packet,
+      method === 'subtle' ? [['image/png']] : PHOTO_EXPORTS,
+    );
     if (revision !== encodeRevision) return;
+    const isJpeg = blob.type === 'image/jpeg';
     encodedCanvas = canvas;
     encodedBlob = blob;
     encodedURL = URL.createObjectURL(blob);
     $('encoded-preview').src = encodedURL;
     $('download').href = encodedURL;
+    $('download').download = isJpeg ? 'packrat-image.jpg' : 'packrat-image.png';
     $('encode-result').hidden = false;
     const resized = canvas.width !== originalWidth || canvas.height !== originalHeight;
     $('encoded-info').textContent =
-      `${canvas.width} × ${canvas.height} · PNG · ${Math.round(blob.size / 1024)} KB · ${packet[5] ? 'Packrat password protected' : found.kind === 'paper' ? 'Recipient-encrypted paper message' : 'Unprotected'} · ${found.kind === 'paper' ? 'Paper message' : found.kind === 'card' ? 'Full contact card' : found.kind === 'identity' ? 'Identity hash' : 'LXMF address'} · ${method === 'subtle' ? 'Original PNG file' : 'Photo mode (experimental)'}${resized ? ' · Dimensions adjusted to the 8-pixel block grid' : ''}`;
+      `${canvas.width} × ${canvas.height} · ${isJpeg ? `JPEG ${Math.round(quality * 100)}%` : 'PNG'} · ${Math.round(blob.size / 1024)} KB · ${packet[5] ? 'Packrat password protected' : found.kind === 'paper' ? 'Recipient-encrypted paper message' : 'Unprotected'} · ${found.kind === 'paper' ? 'Paper message' : found.kind === 'card' ? 'Full contact card' : found.kind === 'identity' ? 'Identity hash' : 'LXMF address'} · ${method === 'subtle' ? 'Original PNG file' : 'Photo mode (experimental)'}${resized ? ' · Dimensions adjusted to the 8-pixel block grid' : ''}`;
     status('encode-status', 'Ready to share. Download your image below.', 'success');
   } catch (err) {
     if (revision === encodeRevision) status('encode-status', err.message, 'error');
@@ -581,7 +604,7 @@ $('decode-form').onsubmit = (e) => {
 };
 $('try-decode').onclick = () => {
   if (!encodedBlob) return;
-  const file = new File([encodedBlob], 'packrat-image.png', { type: 'image/png' });
+  const file = new File([encodedBlob], $('download').download, { type: encodedBlob.type });
   const transfer = new DataTransfer();
   transfer.items.add(file);
   $('decode-file').files = transfer.files;

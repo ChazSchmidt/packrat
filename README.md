@@ -8,7 +8,7 @@ Hide a Ratspeak contact or recipient-encrypted paper message in a picture, then 
 
 1. Choose **Encode**, then what to include: a full contact card, paper message, LXMF address or identity hash. A full contact card includes the public key needed to import the contact directly.
 2. Paste the value or choose a saved contact/paper QR, then choose a JPG or PNG picture.
-3. Choose **Send as a photo** for experimental JPEG tolerance, or **Send as a file** for the smallest pixel changes. File mode requires sharing the original output PNG without compression or resizing.
+3. Choose **Send as a photo** for a compact JPEG with experimental compression tolerance, or **Send as a file** for the smallest pixel changes. File mode requires sharing the original output PNG without compression or resizing.
 4. Optionally add a unique password, then encode and download the image. Prefer six randomly generated words; anyone holding the image can guess passwords offline. There is no password reset.
 
 To recover data, choose **Decode** and select the received image. Enter its password if prompted, then copy individual fields, copy the complete card/link, or scan the recovered QR in Ratspeak. Ordinary contact and paper QRs are also supported.
