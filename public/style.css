@@ -58,6 +58,17 @@ header {
   font-weight: 650;
   text-decoration: none;
 }
+.header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+.button.header-cta {
+  min-height: 36px;
+  padding: 6px 14px;
+  font-size: 14px;
+  white-space: nowrap;
+}
 .badge {
   padding: 4px 9px;
   border: 1px solid var(--border);
