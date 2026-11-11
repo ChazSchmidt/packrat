@@ -1,0 +1,9 @@
+node_modules/
+dist/
+tests/results/
+.env
+.env.*
+*.key
+*.pem
+*.crt
+.DS_Store

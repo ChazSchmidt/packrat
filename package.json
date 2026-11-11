@@ -1,0 +1,22 @@
+{
+  "name": "packrat",
+  "version": "0.2.0-beta.1",
+  "private": true,
+  "license": "MIT",
+  "description": "Hide and recover Ratspeak contacts and encrypted paper messages in images, locally in your browser.",
+  "type": "module",
+  "engines": {
+    "node": ">=24.22.3 <25"
+  },
+  "scripts": {
+    "predev": "node scripts/build.mjs",
+    "dev": "node scripts/dev.mjs --dir dist",
+    "build": "node scripts/build.mjs",
+    "test": "node --test tests/codec.test.mjs tests/contact-card.test.mjs tests/image-codec.test.mjs tests/paper-message.test.mjs",
+    "test:browser": "node tests/browser/run.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "playwright-core": "1.65.0"
+  }
+}

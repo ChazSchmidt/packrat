@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Hide and recover Ratspeak contacts and encrypted paper messages in images, locally in your browser.">
+  <title>Packrat</title>
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <link rel="icon" href="favicon.svg">
+  <link rel="stylesheet" href="style.css">
+  <script src="vendor/qrcode.js" defer></script>
+  <script src="vendor/jsQR.js" defer></script>
+  <script src="app.js" type="module"></script>
+</head>
+<body>
+<main>
+  <header><a class="wordmark" href="./" aria-label="Packrat home"><img src="favicon.svg" alt="" width="32" height="32">Packrat</a><span class="badge">Beta</span></header>
+  <h1>Hide a contact or message in a picture.</h1>
+  <p class="intro">Encode a Ratspeak contact or encrypted paper link, or decode an image you received.</p>
+  <div class="privacy" role="note" aria-label="Local processing and privacy"><strong>Everything runs locally in your browser.</strong><span>Images, contacts, paper links and passwords stay on your device and are never uploaded.</span></div>
+  <div class="app-tools" role="group" aria-label="Application tools">
+    <a id="offline-download" class="button" href="packrat-offline.html" download>Download offline app</a>
+    <button id="clear-session" type="button">Clear session</button>
+  </div>
+  <p id="offline-status" class="offline-status" role="status" aria-live="polite"></p>
+  <div class="workspace">
+  <div class="tabs" role="tablist" aria-label="Image operation">
+    <button id="encode-tab" role="tab" aria-selected="true" aria-controls="encode-panel" tabindex="0">Encode</button>
+    <button id="decode-tab" role="tab" aria-selected="false" aria-controls="decode-panel" tabindex="-1">Decode</button>
+  </div>
+  <section id="encode-panel" role="tabpanel" aria-labelledby="encode-tab">
+    <form id="encode-form">
+      <fieldset class="payload-options">
+        <legend>What do you want to encode?</legend>
+        <label class="payload-option" for="payload-card">
+          <input id="payload-card" name="payload-type" type="radio" value="card" required aria-labelledby="card-name" aria-describedby="card-tradeoff">
+          <span><strong id="card-name">Full contact card</strong><span class="choice-benefit">Best for adding a contact</span><span id="card-tradeoff" class="choice-description">Includes your address and encryption details, so the recipient can import your contact directly. Choose a contact QR saved from Ratspeak, or paste the full card text.</span></span>
+        </label>
+        <label class="payload-option" for="payload-paper">
+          <input id="payload-paper" name="payload-type" type="radio" value="paper" required aria-labelledby="paper-name" aria-describedby="paper-tradeoff">
+          <span><strong id="paper-name">Paper message</strong><span class="choice-benefit">An existing lxm:// link</span><span id="paper-tradeoff" class="choice-description">Hide a paper message created in Ratspeak. Only its intended recipient can read it in Ratspeak. Longer links may need larger pictures and are more sensitive to resizing.</span></span>
+        </label>
+        <label class="payload-option" for="payload-lxmf">
+          <input id="payload-lxmf" name="payload-type" type="radio" value="lxmf" required aria-labelledby="lxmf-name" aria-describedby="lxmf-tradeoff">
+          <span><strong id="lxmf-name">LXMF address</strong><span class="choice-benefit">Easiest to copy</span><span id="lxmf-tradeoff" class="choice-description">Easy to copy from Ratspeak. Carries only your address. The recipient may need to wait for Ratspeak to find your encryption details on the network before messaging you.</span></span>
+        </label>
+        <label class="payload-option" for="payload-identity">
+          <input id="payload-identity" name="payload-type" type="radio" value="identity" required aria-labelledby="identity-name" aria-describedby="identity-tradeoff">
+          <span><strong id="identity-name">Identity hash</strong><span class="choice-benefit">If this is what you have</span><span id="identity-tradeoff" class="choice-description">Keeps your identity hash and derives its LXMF address. The recipient may face the same wait for encryption details.</span></span>
+        </label>
+      </fieldset>
+      <div id="encode-inputs" hidden>
+        <section id="contact-qr-input" hidden aria-label="Load a full contact card">
+          <label id="contact-qr-label" for="contact-qr">Choose your contact QR</label>
+          <p id="contact-qr-help" class="hint field-help">In Ratspeak: open your identity → Share Contact Card → Share QR. The normal and Legacy formats both work.</p>
+          <input id="contact-qr" type="file" accept="image/png,image/jpeg">
+          <p class="hint" id="contact-qr-status" role="status">The QR is read on your device and its contact text is filled in below.</p>
+        </section>
+        <label id="contact-label" for="contact">Your contact</label>
+        <p class="hint field-help" id="contact-help"></p>
+        <textarea id="contact" rows="2" spellcheck="false" autocomplete="off" autocapitalize="off" disabled required aria-describedby="contact-help contact-format"></textarea>
+        <p class="hint" id="contact-format" role="status" hidden></p>
+        <label for="encode-file">Choose the picture to share</label>
+        <input id="encode-file" type="file" accept="image/jpeg,image/png" required disabled aria-describedby="encode-file-help">
+        <p class="hint" id="encode-file-help">JPG or PNG, up to 20 MB. The image is read only on your device.</p>
+        <fieldset class="share-methods">
+          <legend>How will you share the image?</legend>
+          <label class="payload-option" for="method-jpeg"><input id="method-jpeg" type="radio" name="image-method" value="jpeg" checked><span><strong>Send as a photo</strong><span class="choice-description">Designed to tolerate JPEG compression, with slightly more visible changes. Resizing or cropping can erase the contact. Test the received image before relying on it.</span></span></label>
+          <label class="payload-option" for="method-subtle"><input id="method-subtle" type="radio" name="image-method" value="subtle"><span><strong>Send as a file</strong><span class="choice-description">Smallest changes to the picture. Send the downloaded PNG as a file or document, without resizing. Photo compression can erase the contact.</span></span></label>
+        </fieldset>
+        <p id="paper-protection-help" class="hint" hidden>This message is already encrypted for its recipient. A Packrat password adds a separate lock around the link. The recipient needs this password as well as the correct Ratspeak identity.</p>
+        <label for="encode-password">Password <span class="optional">(optional)</span></label>
+        <input id="encode-password" type="password" autocomplete="new-password" disabled aria-describedby="password-help">
+        <div class="password-guidance" id="password-help">
+          <p><strong>Use a unique password of <a href="https://pages.nist.gov/800-63-4/sp800-63b.html#passwordver" target="_blank" rel="noopener noreferrer">at least 15 characters (NIST guidance)</a>, or a <a href="https://www.eff.org/dice" target="_blank" rel="noopener noreferrer">six-word random passphrase (EFF guidance)</a>.</strong> A password manager can generate one for you.</p>
+          <p>Your protection depends on how hard your password is to guess. Length alone does not make a reused password or familiar phrase safe. Anyone with the image can keep trying guesses on their own computer.</p>
+          <p id="password-empty-help">Leave empty to let anyone read the hidden contact. Forgotten passwords cannot be reset.</p>
+          <details id="password-details"><summary>Encryption &amp; password recommendations</summary>
+            <p>Packrat uses AES-256-GCM with a 128-bit authentication tag. PBKDF2-HMAC-SHA256 derives the key using 600,000 iterations and a fresh random 128-bit salt. Each encryption uses a fresh random 96-bit nonce. This slows guessing; a weak password can still be cracked. Hidden data can still be detected even when its contents are encrypted.</p>
+            <p><a href="https://pages.nist.gov/800-63-4/sp800-63b.html#passwordver" target="_blank" rel="noopener noreferrer">NIST SP 800-63B-4</a> requires at least 15 characters for single-factor account passwords and supports password managers, pasting and long passphrases. That sign-in minimum does not establish adequate strength for offline encryption.</p>
+            <p>The 600,000-iteration setting follows <a href="https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#pbkdf2" target="_blank" rel="noopener noreferrer">OWASP’s PBKDF2-SHA256 password-hashing guidance</a>. The six-word advice follows <a href="https://www.eff.org/dice" target="_blank" rel="noopener noreferrer">EFF’s random-passphrase method</a>.</p>
+            <p>Keep your passphrase in a password manager and share it separately from the image. Packrat has not received an independent security audit.</p>
+          </details>
+        </div>
+        <button class="primary" id="encode-button" type="submit" disabled>Encode image</button>
+      </div>
+    </form>
+    <p id="encode-status" class="status" role="status" aria-live="polite"></p>
+    <div id="encode-result" class="result" hidden>
+      <h2>Your image is ready</h2>
+      <img id="encoded-preview" alt="Your image containing hidden Ratspeak data">
+      <p id="encoded-info" class="hint"></p>
+      <div class="actions"><a id="download" class="button primary" download="packrat-image.png">Download image</a><button id="try-decode" type="button">Decode this image</button></div>
+      <details id="experiment"><summary>Test JPEG recompression</summary>
+        <p class="hint">Recompress this image locally, then check whether its hidden data survives. This does not simulate resizing or an actual platform upload.</p>
+        <label for="jpeg-quality">JPEG quality: <output id="quality-value">80%</output></label>
+        <input id="jpeg-quality" type="range" min="20" max="100" value="80" step="5">
+        <button id="test-jpeg" type="button">Recompress &amp; check</button>
+        <p id="jpeg-status" class="status" role="status"></p>
+        <a id="jpeg-download" class="button" download="packrat-image-test.jpg" hidden>Download test JPEG</a>
+      </details>
+    </div>
+  </section>
+  <section id="decode-panel" role="tabpanel" aria-labelledby="decode-tab" hidden>
+    <form id="decode-form">
+      <label for="decode-file">Choose the image you received</label>
+      <input id="decode-file" type="file" accept="image/jpeg,image/png" required aria-describedby="decode-file-help">
+      <p class="hint" id="decode-file-help">Choose an image with a hidden contact or paper message, or an ordinary contact or lxm:// paper QR. JPG or PNG, up to 20 MB.</p>
+      <button id="decode-button" class="primary" type="submit">Decode image</button>
+    </form>
+    <p id="decode-status" class="status" role="status" aria-live="polite"></p>
+    <form id="unlock-form" hidden>
+      <label for="decode-password">This data is password protected</label>
+      <input id="decode-password" type="password" autocomplete="current-password" required>
+      <button id="unlock-button" class="primary" type="submit">Unlock</button>
+    </form>
+    <div id="decode-result" class="result" hidden>
+      <h2 id="recovered-heading">Contact recovered</h2>
+      <div id="decoded-parts"></div>
+      <label id="recovered-label" for="recovered-contact">Full Ratspeak contact</label>
+      <textarea id="recovered-contact" rows="4" readonly spellcheck="false"></textarea>
+      <div class="actions"><button id="copy-contact" type="button">Copy contact</button><a id="open-contact" class="button">Open in Ratspeak</a></div>
+      <p id="copy-status" class="hint" role="status"></p>
+      <div class="qr-wrap" id="contact-qr-result"><canvas id="qr" aria-label="QR code of the recovered Ratspeak contact" role="img"></canvas><p id="qr-help">Scan in Ratspeak to import this contact.</p></div>
+      <p class="hint" id="contact-import-help">This tool preserves the contact card. Ratspeak checks whether the address matches the public key when importing it.</p>
+    </div>
+  </section>
+  </div>
+  <section id="privacy-notes" class="privacy-notes" aria-labelledby="privacy-heading" tabindex="-1">
+    <h2 id="privacy-heading">Privacy &amp; sharing</h2>
+    <p>For your privacy, encoding, decoding, QR reading and password protection all happen locally in your browser. Images, contacts, paper links and passwords are never uploaded.</p><p>Packrat requires no account, includes no analytics, and does not save a history of your work. Your browser may still keep browsing history and downloaded files.</p><p>The website host can log your visit, including your IP address. Download and open the offline app to use Packrat without a connection. The initial download can still be logged.</p><p>Photo mode has survived Twitter/X, Telegram and Signal in the creator’s tests. Results depend on how an image is sent and received. Test the received image; avoid cropping and resizing.</p><p>Hidden data can be detected. A password protects the contents; a short password can be guessed offline. This tool does not verify who a contact belongs to.</p><p>Compatible with lxma://, RSCP1 and RSCP2 contact cards and lxm:// paper messages. Paper links are already recipient-encrypted; open them in Ratspeak to read the message and check its sender. An independent tool for Ratspeak.</p>
+  </section>
+  <footer>
+    <div class="footer-main">
+      <p class="version"><span class="footer-brand">Packrat</span><span id="app-version">__APP_VERSION__</span></p>
+      <nav class="footer-nav" aria-label="Footer">
+        <a href="#privacy-notes">Privacy &amp; sharing</a>
+        <a href="https://ratspeak.org/" target="_blank" rel="noopener noreferrer">Ratspeak.org</a>
+      </nav>
+    </div>
+
+    <div class="footer-meta">
+      <p class="footer-credit">Inspired by <a href="https://www.bennjordan.com/blog/stego-links" target="_blank" rel="noopener noreferrer">Benn Jordan</a>.</p>
+      <p class="audit-note"><strong>DISCLAIMER: Packrat has not received an independent security audit.</strong></p>
+    </div>
+  </footer>
+</main>
+</body>
+</html>
