@@ -64,9 +64,11 @@ header {
   gap: 12px;
 }
 .button.header-cta {
-  min-height: 36px;
-  padding: 6px 14px;
-  font-size: 14px;
+  min-height: 0;
+  padding: 4px 9px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: inherit;
   white-space: nowrap;
 }
 .badge {
