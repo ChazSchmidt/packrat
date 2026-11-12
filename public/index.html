@@ -90,14 +90,14 @@
       <h2>Your image is ready</h2>
       <img id="encoded-preview" alt="Your image containing hidden Ratspeak data">
       <p id="encoded-info" class="hint"></p>
-      <div class="actions"><a id="download" class="button primary" download="packrat-image.png">Download image</a><button id="try-decode" type="button">Decode this image</button></div>
+      <div class="actions"><a id="download" class="button primary" download="image.png">Download image</a><button id="try-decode" type="button">Decode this image</button></div>
       <details id="experiment"><summary>Test JPEG recompression</summary>
         <p class="hint">Recompress this image locally, then check whether its hidden data survives. This does not simulate resizing or an actual platform upload.</p>
         <label for="jpeg-quality">JPEG quality: <output id="quality-value">80%</output></label>
         <input id="jpeg-quality" type="range" min="20" max="100" value="80" step="5">
         <button id="test-jpeg" type="button">Recompress &amp; check</button>
         <p id="jpeg-status" class="status" role="status"></p>
-        <a id="jpeg-download" class="button" download="packrat-image-test.jpg" hidden>Download test JPEG</a>
+        <a id="jpeg-download" class="button" download="image.jpg" hidden>Download test JPEG</a>
       </details>
     </div>
   </section>

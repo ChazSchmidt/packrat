@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdir, writeFile, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -223,9 +224,13 @@ try {
     page.waitForEvent('download'),
     page.locator('#download').click(),
   ]);
-  assert.equal(download[0].suggestedFilename(), 'packrat-image.jpg');
   const encoded = path.join(out, 'portable-contact.jpg');
   await download[0].saveAs(encoded);
+  // The filename is the first 16 hex characters of the file's SHA-256.
+  assert.equal(
+    download[0].suggestedFilename(),
+    `${createHash('sha256').update(await readFile(encoded)).digest('hex').slice(0, 16)}.jpg`,
+  );
   const second = await chromium.launch(options);
   try {
     const p = await second.newPage();

@@ -301,6 +301,12 @@ function blobFor(canvas, type = 'image/png', quality) {
   );
 }
 // Export in the first format that reloads with the exact packet intact.
+// Name downloads by content hash so the filename does not reveal the tool.
+async function hashName(blob) {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()));
+  const hex = Array.from(digest.subarray(0, 8), (b) => b.toString(16).padStart(2, '0')).join('');
+  return `${hex}.${blob.type === 'image/jpeg' ? 'jpg' : 'png'}`;
+}
 async function exportVerified(canvas, packet, attempts) {
   for (const [type, quality] of attempts) {
     const blob = await blobFor(canvas, type, quality);
@@ -361,6 +367,7 @@ $('encode-form').onsubmit = async (e) => {
       packet,
       method === 'subtle' ? [['image/png']] : PHOTO_EXPORTS,
     );
+    const filename = await hashName(blob);
     if (revision !== encodeRevision) return;
     const isJpeg = blob.type === 'image/jpeg';
     encodedCanvas = canvas;
@@ -368,7 +375,7 @@ $('encode-form').onsubmit = async (e) => {
     encodedURL = URL.createObjectURL(blob);
     $('encoded-preview').src = encodedURL;
     $('download').href = encodedURL;
-    $('download').download = isJpeg ? 'packrat-image.jpg' : 'packrat-image.png';
+    $('download').download = filename;
     $('encode-result').hidden = false;
     const resized = canvas.width !== originalWidth || canvas.height !== originalHeight;
     $('encoded-info').textContent =
@@ -661,11 +668,13 @@ $('test-jpeg').onclick = async () => {
   try {
     await tick();
     const quality = Number($('jpeg-quality').value),
-      blob = await blobFor(canvas, 'image/jpeg', quality / 100);
+      blob = await blobFor(canvas, 'image/jpeg', quality / 100),
+      filename = await hashName(blob);
     if (revision !== encodeRevision) return;
     if (jpegURL) URL.revokeObjectURL(jpegURL);
     jpegURL = URL.createObjectURL(blob);
     $('jpeg-download').href = jpegURL;
+    $('jpeg-download').download = filename;
     $('jpeg-download').hidden = false;
     const { pixels } = await loadImage(new File([blob], 'test.jpg', { type: 'image/jpeg' })),
       found = extract(pixels);
