@@ -302,6 +302,25 @@ textarea::placeholder {
 .photo-quality {
   margin-top: 16px;
 }
+.check-option {
+  display: flex;
+  font-weight: 400;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+  cursor: pointer;
+}
+.check-option input {
+  width: 20px;
+  height: 20px;
+  margin: 3px 0 0;
+  accent-color: var(--accent);
+  flex: none;
+}
+.check-option .choice-description {
+  display: block;
+  font-weight: 400;
+}
 .photo-quality[hidden] {
   display: none;
 }
@@ -381,6 +400,10 @@ summary:focus-visible {
 }
 .status[data-kind='success'] {
   color: #1f6f43;
+}
+.status[data-kind='warning'] {
+  color: #8a4b00;
+  font-weight: 550;
 }
 .result {
   margin-top: 28px;

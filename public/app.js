@@ -152,6 +152,7 @@ for (const radio of document.querySelectorAll('[name="image-method"]'))
     clearEncoded();
     syncPhotoQuality();
   });
+$('ratspeak-fit').addEventListener('change', clearEncoded);
 $('photo-quality').addEventListener('input', () => {
   syncPhotoQuality();
   clearEncoded();
@@ -239,7 +240,7 @@ function clearDecoded() {
   status('copy-status', '');
 }
 $('decode-file').onchange = clearDecoded;
-async function loadImage(file, forEncoding = false, packetSize = 0, method = 'subtle') {
+async function loadImage(file, forEncoding = false, packetSize = 0, method = 'subtle', maxEdge = 0) {
   if (!file) throw new Error('Choose a JPG or PNG image first.');
   if (!['image/png', 'image/jpeg'].includes(file.type))
     throw new Error('Choose a JPG or PNG image.');
@@ -256,9 +257,13 @@ async function loadImage(file, forEncoding = false, packetSize = 0, method = 'su
       throw new Error('Choose an image under 24 megapixels and 10,000 pixels per side.');
     if (forEncoding && method !== 'subtle') {
       const needed = requiredBlocks(packetSize);
-      const factor = Math.max(1, Math.sqrt(((needed + 200) * 64) / (width * height)));
-      width = Math.ceil((width * factor) / 8) * 8;
-      height = Math.ceil((height * factor) / 8) * 8;
+      // Grow small pictures to fit the payload. With maxEdge, also shrink large
+      // ones, but never below what the payload needs.
+      const minimum = Math.sqrt(((needed + 200) * 64) / (width * height)),
+        fit = maxEdge ? Math.min(1, maxEdge / Math.max(width, height)) : 1;
+      const factor = Math.max(fit, minimum);
+      width = Math.ceil((width * factor - 1e-6) / 8) * 8;
+      height = Math.ceil((height * factor - 1e-6) / 8) * 8;
       if (width * height > 24000000 || width > 10000 || height > 10000)
         throw new Error(
           'This image is too narrow to carry this data. Choose a less extreme aspect ratio.',
@@ -288,6 +293,7 @@ async function loadImage(file, forEncoding = false, packetSize = 0, method = 'su
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, width, height);
+    ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(image, 0, 0, width, height);
     return {
       canvas,
@@ -335,6 +341,68 @@ async function exportVerified(canvas, packet, attempts) {
   }
   throw new Error('The image did not pass its round-trip check. Try another image.');
 }
+const samePacket = (found, packet) =>
+  found.data.length === packet.length && found.data.every((b, i) => b === packet[i]);
+async function embedInto(file, packet, method, maxEdge = 0) {
+  const loaded = await loadImage(file, true, packet.length, method, maxEdge);
+  let alreadyEncoded = false;
+  try {
+    extract(loaded.pixels);
+    alreadyEncoded = true;
+  } catch {}
+  if (alreadyEncoded)
+    throw new Error(
+      'This image already contains hidden data. Choose the original clean image so its old marks are not kept.',
+    );
+  embed(loaded.pixels, packet, method);
+  loaded.canvas.getContext('2d').putImageData(loaded.pixels, 0, 0);
+  return loaded;
+}
+// Ratspeak (ratspeak-runtime image_attachment.rs) re-saves every photo as JPEG.
+// Under 1 MB it sends automatically: 95% if that fits 750 KB, otherwise its
+// Medium profile at 82%, resizing anything that still does not fit. Over 1 MB
+// it asks for a size, and Medium resizes to 1600 px. Resizing erases photo-mode
+// data, so "Fit for Ratspeak" keeps pictures inside the no-resize path. Limits
+// below leave headroom because Ratspeak's JPEG encoder is not the browser's.
+const RATSPEAK_EDGE = 1600,
+  RATSPEAK_AUTO_BYTES = 950_000,
+  RATSPEAK_RECODE_BYTES = 600_000;
+async function survivesRatspeak(blob, packet) {
+  const { canvas } = await loadImage(new File([blob], 'sent', { type: blob.type }));
+  for (const quality of [0.95, 0.82]) {
+    const sent = await blobFor(canvas, 'image/jpeg', quality);
+    if (sent.size > RATSPEAK_RECODE_BYTES) continue;
+    const { pixels } = await loadImage(new File([sent], 'received', { type: 'image/jpeg' }));
+    try {
+      return samePacket(extract(pixels), packet);
+    } catch {
+      return false;
+    }
+  }
+  return false; // Ratspeak would resize it.
+}
+// Highest JPEG quality, up to the chosen one, that stays under 1 MB and
+// survives a simulated Ratspeak send. Null means the picture must shrink.
+async function exportForRatspeak(canvas, packet, chosen) {
+  const steps = [chosen, 97, 92, 85, 80, 75, 70].filter(
+    (q, i, all) => q <= chosen && all.indexOf(q) === i,
+  );
+  for (const q of steps) {
+    const blob = await blobFor(canvas, 'image/jpeg', q / 100);
+    if (blob.type !== 'image/jpeg') return null;
+    if (blob.size > RATSPEAK_AUTO_BYTES) continue;
+    const { pixels } = await loadImage(new File([blob], 'check', { type: 'image/jpeg' }));
+    let found;
+    try {
+      found = extract(pixels);
+    } catch {
+      return null;
+    }
+    if (!samePacket(found, packet) || !(await survivesRatspeak(blob, packet))) return null;
+    return { blob, found, quality: q / 100 };
+  }
+  return null;
+}
 $('encode-form').onsubmit = async (e) => {
   e.preventDefault();
   if (!payloadType) return;
@@ -342,7 +410,8 @@ $('encode-form').onsubmit = async (e) => {
   const revision = encodeRevision,
     type = payloadType,
     method = document.querySelector('[name="image-method"]:checked').value,
-    chosenQuality = photoQuality();
+    chosenQuality = photoQuality(),
+    fitRatspeak = method === 'jpeg' && $('ratspeak-fit').checked;
   const button = $('encode-button');
   button.disabled = true;
   status('encode-status', type === 'paper' ? 'Embedding paper link…' : 'Embedding contact…');
@@ -360,29 +429,37 @@ $('encode-form').onsubmit = async (e) => {
       $('encode-password').value,
       type === 'identity' ? 'identity' : 'lxmf',
     );
-    const { canvas, pixels, originalWidth, originalHeight } = await loadImage(
-      $('encode-file').files[0],
-      true,
-      packet.length,
-      method,
-    );
-    let alreadyEncoded = false;
-    try {
-      extract(pixels);
-      alreadyEncoded = true;
-    } catch {}
-    if (alreadyEncoded)
-      throw new Error(
-        'This image already contains hidden data. Choose the original clean image so its old marks are not kept.',
+    const file = $('encode-file').files[0];
+    let prepared, result;
+    if (fitRatspeak) {
+      // Shrink to Ratspeak's 1600 px Medium size, then further if needed to
+      // stay under 1 MB, but never below what the payload needs.
+      let edge = RATSPEAK_EDGE,
+        first = null;
+      for (let attempt = 0; attempt < 5 && !result; attempt++) {
+        prepared = await embedInto(file, packet, method, edge);
+        first ??= prepared;
+        result = await exportForRatspeak(prepared.canvas, packet, chosenQuality);
+        const longest = Math.max(prepared.canvas.width, prepared.canvas.height);
+        if (longest > edge) break; // Already at the smallest size this payload allows.
+        edge = Math.floor((longest * 0.85) / 8) * 8;
+      }
+      if (!result) {
+        prepared = first;
+        result = await exportVerified(first.canvas, packet, photoExports(chosenQuality));
+      }
+    } else {
+      prepared = await embedInto(file, packet, method);
+      // Verify the exact exported file after reload, not only the in-memory pixels.
+      result = await exportVerified(
+        prepared.canvas,
+        packet,
+        method === 'subtle' ? [['image/png']] : photoExports(chosenQuality),
       );
-    embed(pixels, packet, method);
-    canvas.getContext('2d').putImageData(pixels, 0, 0);
-    // Verify the exact exported file after reload, not only the in-memory pixels.
-    const { blob, found, quality } = await exportVerified(
-      canvas,
-      packet,
-      method === 'subtle' ? [['image/png']] : photoExports(chosenQuality),
-    );
+    }
+    const { canvas, originalWidth, originalHeight } = prepared,
+      { blob, found, quality } = result,
+      fitted = fitRatspeak && blob.size <= RATSPEAK_AUTO_BYTES && blob.type === 'image/jpeg';
     const filename = await hashName(blob);
     if (revision !== encodeRevision) return;
     const isJpeg = blob.type === 'image/jpeg';
@@ -393,10 +470,31 @@ $('encode-form').onsubmit = async (e) => {
     $('download').href = encodedURL;
     $('download').download = filename;
     $('encode-result').hidden = false;
-    const resized = canvas.width !== originalWidth || canvas.height !== originalHeight;
+    const percent = Math.round(quality * 100),
+      shrunk = canvas.width < originalWidth || canvas.height < originalHeight,
+      resized = canvas.width !== originalWidth || canvas.height !== originalHeight;
+    const qualityNote =
+      percent > chosenQuality
+        ? ` (raised from ${chosenQuality}%)`
+        : percent < chosenQuality
+          ? ` (lowered from ${chosenQuality}% to stay under 1 MB)`
+          : '';
     $('encoded-info').textContent =
-      `${canvas.width} × ${canvas.height} · ${isJpeg ? `JPEG ${Math.round(quality * 100)}%${Math.round(quality * 100) > chosenQuality ? ` (raised from ${chosenQuality}%)` : ''}` : method === 'subtle' ? 'PNG' : 'PNG (JPEG did not keep the data)'} · ${Math.round(blob.size / 1024)} KB · ${packet[5] ? 'Packrat password protected' : found.kind === 'paper' ? 'Recipient-encrypted paper message' : 'Unprotected'} · ${found.kind === 'paper' ? 'Paper message' : found.kind === 'card' ? 'Full contact card' : found.kind === 'identity' ? 'Identity hash' : 'LXMF address'} · ${method === 'subtle' ? 'Original PNG file' : 'Photo mode (experimental)'}${resized ? ' · Dimensions adjusted to the 8-pixel block grid' : ''}`;
-    status('encode-status', 'Ready to share. Download your image below.', 'success');
+      `${canvas.width} × ${canvas.height} · ${isJpeg ? `JPEG ${percent}%${qualityNote}` : method === 'subtle' ? 'PNG' : 'PNG (JPEG did not keep the data)'} · ${Math.round(blob.size / 1024)} KB · ${packet[5] ? 'Packrat password protected' : found.kind === 'paper' ? 'Recipient-encrypted paper message' : 'Unprotected'} · ${found.kind === 'paper' ? 'Paper message' : found.kind === 'card' ? 'Full contact card' : found.kind === 'identity' ? 'Identity hash' : 'LXMF address'} · ${method === 'subtle' ? 'Original PNG file' : 'Photo mode (experimental)'}${shrunk ? ` · Resized from ${originalWidth} × ${originalHeight}` : resized ? ' · Dimensions adjusted to the 8-pixel block grid' : ''}${fitted ? ' · Sized for Ratspeak' : ''}`;
+    if (fitRatspeak && !fitted)
+      status(
+        'encode-status',
+        'Ready, but this image is too large for Ratspeak to send without resizing it, which would erase the hidden data. When sending in Ratspeak, choose Actual size.',
+        'warning',
+      );
+    else
+      status(
+        'encode-status',
+        fitted
+          ? 'Ready to share. Sized so Ratspeak sends it without resizing. Download your image below.'
+          : 'Ready to share. Download your image below.',
+        'success',
+      );
   } catch (err) {
     if (revision === encodeRevision) status('encode-status', err.message, 'error');
   } finally {
@@ -632,6 +730,8 @@ $('try-decode').onclick = () => {
   transfer.items.add(file);
   $('decode-file').files = transfer.files;
   tab('decode');
+  // Start the decode view at its top, not at the Encode result's scroll position.
+  document.querySelector('.workspace').scrollIntoView({ block: 'start' });
   decodeFile(file);
 };
 $('unlock-form').onsubmit = async (e) => {

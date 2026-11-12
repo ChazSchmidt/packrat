@@ -349,6 +349,60 @@ try {
   await page.locator('#encode-result').waitFor();
   assert.match(await page.locator('#encoded-info').innerText(), / · JPEG (85%|\d+% \(raised from 85%\)) · /);
   assert.ok((await sizeOf()) < size100, 'lower quality should make a smaller file');
+  // Decode this image starts the decode view at its top.
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await page.locator('#try-decode').click();
+  await page.locator('#decode-result').waitFor();
+  const tabsTop = await page.locator('.tabs').evaluate((t) => t.getBoundingClientRect().top);
+  assert.ok(tabsTop >= -1 && tabsTop < 50, `decode view should start at the top (was ${tabsTop})`);
+  await page.locator('#encode-tab').click();
+  // Fit for Ratspeak (default) shrinks a large photo to 1600 px and under 1 MB.
+  const large = {
+    name: 'large-photo.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(
+      await page.evaluate(() => {
+        const c = document.createElement('canvas');
+        c.width = 3200;
+        c.height = 2400;
+        const x = c.getContext('2d'),
+          d = x.createImageData(c.width, c.height);
+        for (let i = 0, s = 7; i < d.data.length; i += 4) {
+          const p = i / 4,
+            px = p % c.width,
+            py = Math.floor(p / c.width);
+          s = (s * 1103515245 + 12345) >>> 0;
+          const n = (s >>> 24) / 8;
+          d.data[i] = 120 + 80 * Math.sin(px / 150) + n;
+          d.data[i + 1] = 110 + 70 * Math.cos(py / 120) + n;
+          d.data[i + 2] = 90 + 60 * Math.sin((px + py) / 200) + n;
+          d.data[i + 3] = 255;
+        }
+        x.putImageData(d, 0, 0);
+        return c.toDataURL().split(',')[1];
+      }),
+      'base64',
+    ),
+  };
+  assert.equal(await page.locator('#ratspeak-fit').isChecked(), true);
+  await page.locator('#encode-file').setInputFiles(large);
+  await page.locator('#encode-button').click();
+  await page.locator('#encode-result').waitFor({ timeout: 120000 });
+  const fittedInfo = await page.locator('#encoded-info').innerText();
+  const [fw, fh] = fittedInfo.match(/^(\d+) × (\d+)/).slice(1).map(Number);
+  assert.ok(Math.max(fw, fh) <= 1600, fittedInfo);
+  assert.ok((await sizeOf()) <= 950, fittedInfo);
+  assert.match(fittedInfo, /Resized from 3200 × 2400 · Sized for Ratspeak/);
+  await page.locator('#try-decode').click();
+  await page.locator('#decode-result').waitFor();
+  assert.equal(await page.locator('#recovered-contact').inputValue(), rscp1);
+  await page.locator('#encode-tab').click();
+  await page.locator('#ratspeak-fit').uncheck();
+  await page.locator('#encode-button').click();
+  await page.locator('#encode-result').waitFor({ timeout: 120000 });
+  assert.match(await page.locator('#encoded-info').innerText(), /^3200 × 2400 · JPEG \d+% · /);
+  await page.locator('#ratspeak-fit').check();
+  await page.locator('#encode-file').setInputFiles(image);
   await page.locator('#method-subtle').check();
   assert.equal(await page.locator('#photo-quality-field').isVisible(), false);
   await page.locator('#method-jpeg').check();
