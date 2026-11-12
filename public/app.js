@@ -154,7 +154,43 @@ for (const radio of document.querySelectorAll('[name="image-method"]'))
   });
 for (const radio of document.querySelectorAll('[name="photo-size"]'))
   radio.addEventListener('change', clearEncoded);
-const photoEdge = () => Number(document.querySelector('[name="photo-size"]:checked').value);
+// The size choice only appears when it can change the picture. Hidden, the
+// default 1600 applies: no resizing at this size, but still under 1 MB.
+let pictureEdge = 0,
+  pictureRevision = 0;
+const photoEdge = () =>
+  $('photo-size').hidden
+    ? 1600
+    : Number(document.querySelector('[name="photo-size"]:checked').value);
+function syncPhotoSize() {
+  const shrinkable = pictureEdge > 1280,
+    above1600 = pictureEdge > 1600;
+  $('photo-size').hidden = !shrinkable;
+  // Between 1280 and 1600, Full size would match 1600 but skip the 1 MB cap.
+  $('size-full-option').hidden = !above1600;
+  if (!above1600 && $('size-full').checked) $('size-1600').checked = true;
+}
+async function readPictureSize() {
+  const revision = ++pictureRevision,
+    file = $('encode-file').files[0];
+  let edge = 0;
+  if (file && ['image/png', 'image/jpeg'].includes(file.type)) {
+    const url = URL.createObjectURL(file),
+      image = new Image();
+    try {
+      image.src = url;
+      await image.decode();
+      edge = Math.max(image.naturalWidth, image.naturalHeight);
+    } catch {
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+  if (revision !== pictureRevision) return;
+  pictureEdge = edge;
+  syncPhotoSize();
+}
+$('encode-file').addEventListener('change', readPictureSize);
 $('photo-quality').addEventListener('input', () => {
   syncPhotoQuality();
   clearEncoded();
@@ -824,6 +860,9 @@ $('clear-session').onclick = () => {
   for (const id of ['contact', 'encode-file', 'encode-file-paste', 'encode-password', 'encode-button'])
     $(id).disabled = true;
   $('contact-qr-paste').disabled = true;
+  pictureRevision++;
+  pictureEdge = 0;
+  syncPhotoSize();
   syncPhotoQuality();
   $('contact-format').hidden = true;
   status('contact-qr-status', '');

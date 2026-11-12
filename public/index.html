@@ -68,13 +68,13 @@
           <label class="payload-option" for="method-jpeg"><input id="method-jpeg" type="radio" name="image-method" value="jpeg" checked><span><strong>Send as a photo</strong><span class="choice-description">Downloads a JPEG designed to tolerate further compression, with slightly more visible changes. Resizing or cropping can erase the contact. Test the received image before relying on it.</span></span></label>
           <label class="payload-option" for="method-subtle"><input id="method-subtle" type="radio" name="image-method" value="subtle"><span><strong>Send as a file</strong><span class="choice-description">Smallest changes to the picture. Send the downloaded PNG as a file or document, without resizing. Photo compression can erase the contact.</span></span></label>
           <div id="photo-quality-field" class="photo-quality">
-            <fieldset class="size-options" aria-describedby="photo-size-help">
+            <fieldset id="photo-size" class="size-options" aria-describedby="photo-size-help" hidden>
               <legend>Picture size</legend>
               <p class="hint field-help" id="photo-size-help">Chat apps shrink bigger photos when sending them, and shrinking erases the contact. Pick the app you will send it through.</p>
               <div class="segmented">
-                <label for="size-1280"><input id="size-1280" type="radio" name="photo-size" value="1280"><span><strong>1280 px</strong><span class="segment-apps">Telegram + all above</span></span></label>
-                <label for="size-1600"><input id="size-1600" type="radio" name="photo-size" value="1600" checked><span><strong>1600 px</strong><span class="segment-apps">Ratspeak, Signal, WhatsApp</span></span></label>
-                <label for="size-full"><input id="size-full" type="radio" name="photo-size" value="0"><span><strong>Full size</strong><span class="segment-apps">X, Discord, email</span></span></label>
+                <label id="size-1280-option" for="size-1280"><input id="size-1280" type="radio" name="photo-size" value="1280"><span><strong>1280 px</strong><span class="segment-apps">Telegram + all above</span></span></label>
+                <label id="size-1600-option" for="size-1600"><input id="size-1600" type="radio" name="photo-size" value="1600" checked><span><strong>1600 px</strong><span class="segment-apps">Ratspeak, Signal, WhatsApp</span></span></label>
+                <label id="size-full-option" for="size-full"><input id="size-full" type="radio" name="photo-size" value="0"><span><strong>Full size</strong><span class="segment-apps">X, Discord, email</span></span></label>
               </div>
             </fieldset>
             <label for="photo-quality">Photo quality: <output id="photo-quality-value" for="photo-quality">92%</output></label>

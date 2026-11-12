@@ -1,6 +1,6 @@
 {
   "name": "packrat",
-  "version": "0.2.0-beta.1",
+  "version": "0.2.0-beta.2",
   "private": true,
   "license": "MIT",
   "description": "Hide and recover Ratspeak contacts and encrypted paper messages in images, locally in your browser.",

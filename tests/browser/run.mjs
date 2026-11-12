@@ -386,8 +386,35 @@ try {
       'base64',
     ),
   };
+  // The size choice appears only when the picture is large enough to shrink.
+  assert.equal(await page.locator('#photo-size').isVisible(), false); // 1200 px picture
   assert.equal(await page.locator('#size-1600').isChecked(), true);
   await page.locator('#encode-file').setInputFiles(large);
+  await page.locator('#photo-size').waitFor();
+  assert.equal(await page.locator('#size-full-option').isVisible(), true);
+  const mid = {
+    name: 'mid.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(
+      await page.evaluate(() => {
+        const c = document.createElement('canvas');
+        c.width = 1500;
+        c.height = 1000;
+        const x = c.getContext('2d');
+        x.fillStyle = '#7a9';
+        x.fillRect(0, 0, 1500, 1000);
+        return c.toDataURL().split(',')[1];
+      }),
+      'base64',
+    ),
+  };
+  await page.locator('#size-full').check();
+  await page.locator('#encode-file').setInputFiles(mid);
+  await page.waitForFunction(() => document.querySelector('#size-full-option').hidden);
+  assert.equal(await page.locator('#size-1280-option').isVisible(), true);
+  assert.equal(await page.locator('#size-1600').isChecked(), true);
+  await page.locator('#encode-file').setInputFiles(large);
+  await page.waitForFunction(() => !document.querySelector('#size-full-option').hidden);
   await page.locator('#encode-button').click();
   await page.locator('#encode-result').waitFor({ timeout: 120000 });
   const fittedInfo = await page.locator('#encoded-info').innerText();
