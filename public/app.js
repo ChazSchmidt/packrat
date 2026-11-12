@@ -21,13 +21,15 @@ let encodeRevision = 0,
 let payloadType = null;
 const contactDrafts = { card: '', paper: '', lxmf: '', identity: '' };
 const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
-// Photo-mode export tries JPEG first, rising in quality, and falls back to PNG.
-const PHOTO_EXPORTS = [
-  ['image/jpeg', 0.85],
-  ['image/jpeg', 0.92],
-  ['image/jpeg', 0.97],
-  ['image/png'],
-];
+// Photo-mode export starts at the chosen JPEG quality, rises if the packet
+// does not survive, and falls back to PNG.
+function photoExports(percent) {
+  const steps = [percent, ...[85, 92, 97, 100].filter((q) => q > percent)];
+  return [...steps.map((q) => ['image/jpeg', q / 100]), ['image/png']];
+}
+function photoQuality() {
+  return Math.min(100, Math.max(80, Number($('photo-quality').value) || 92));
+}
 function status(id, text, kind = '') {
   $(id).textContent = text;
   $(id).dataset.kind = kind;
@@ -103,7 +105,7 @@ for (const radio of document.querySelectorAll('[name="payload-type"]'))
     clearEncoded();
     const instructions = payloadInstructions[payloadType];
     $('encode-inputs').hidden = false;
-    for (const id of ['contact', 'encode-file', 'encode-password', 'encode-button'])
+    for (const id of ['contact', 'encode-file', 'encode-file-paste', 'encode-password', 'encode-button'])
       $(id).disabled = false;
     $('contact-label').textContent = instructions.label;
     $('contact-help').textContent = instructions.help;
@@ -115,6 +117,7 @@ for (const radio of document.querySelectorAll('[name="payload-type"]'))
       hasQr = isPaper || payloadType === 'card';
     $('contact-qr-input').hidden = !hasQr;
     $('contact-qr').disabled = !hasQr;
+    $('contact-qr-paste').disabled = !hasQr;
     $('contact-qr').value = '';
     $('contact-qr-label').textContent = isPaper
       ? 'Choose your paper-message QR'
@@ -140,8 +143,59 @@ for (const radio of document.querySelectorAll('[name="payload-type"]'))
         : 'The QR is read on your device and its contact text is filled in below.',
     );
   });
+function syncPhotoQuality() {
+  $('photo-quality-field').hidden = !$('method-jpeg').checked;
+  $('photo-quality-value').value = photoQuality() + '%';
+}
 for (const radio of document.querySelectorAll('[name="image-method"]'))
+  radio.addEventListener('change', () => {
+    clearEncoded();
+    syncPhotoQuality();
+  });
+for (const radio of document.querySelectorAll('[name="photo-size"]'))
   radio.addEventListener('change', clearEncoded);
+// The size choice only appears when it can change the picture. Hidden, the
+// default 1600 applies: no resizing at this size, but still under 1 MB.
+let pictureEdge = 0,
+  pictureRevision = 0;
+const photoEdge = () =>
+  $('photo-size').hidden
+    ? 1600
+    : Number(document.querySelector('[name="photo-size"]:checked').value);
+function syncPhotoSize() {
+  const shrinkable = pictureEdge > 1280,
+    above1600 = pictureEdge > 1600;
+  $('photo-size').hidden = !shrinkable;
+  // Between 1280 and 1600, Full size would match 1600 but skip the 1 MB cap.
+  $('size-full-option').hidden = !above1600;
+  if (!above1600 && $('size-full').checked) $('size-1600').checked = true;
+}
+async function readPictureSize() {
+  const revision = ++pictureRevision,
+    file = $('encode-file').files[0];
+  let edge = 0;
+  if (file && ['image/png', 'image/jpeg'].includes(file.type)) {
+    const url = URL.createObjectURL(file),
+      image = new Image();
+    try {
+      image.src = url;
+      await image.decode();
+      edge = Math.max(image.naturalWidth, image.naturalHeight);
+    } catch {
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+  if (revision !== pictureRevision) return;
+  pictureEdge = edge;
+  syncPhotoSize();
+}
+$('encode-file').addEventListener('change', readPictureSize);
+$('photo-quality').addEventListener('input', () => {
+  syncPhotoQuality();
+  clearEncoded();
+});
+syncPhotoQuality();
 for (const id of ['encode-file', 'contact', 'encode-password'])
   $(id).addEventListener('input', clearEncoded);
 $('contact').addEventListener('input', () => {
@@ -224,7 +278,7 @@ function clearDecoded() {
   status('copy-status', '');
 }
 $('decode-file').onchange = clearDecoded;
-async function loadImage(file, forEncoding = false, packetSize = 0, method = 'subtle') {
+async function loadImage(file, forEncoding = false, packetSize = 0, method = 'subtle', maxEdge = 0) {
   if (!file) throw new Error('Choose a JPG or PNG image first.');
   if (!['image/png', 'image/jpeg'].includes(file.type))
     throw new Error('Choose a JPG or PNG image.');
@@ -241,9 +295,13 @@ async function loadImage(file, forEncoding = false, packetSize = 0, method = 'su
       throw new Error('Choose an image under 24 megapixels and 10,000 pixels per side.');
     if (forEncoding && method !== 'subtle') {
       const needed = requiredBlocks(packetSize);
-      const factor = Math.max(1, Math.sqrt(((needed + 200) * 64) / (width * height)));
-      width = Math.ceil((width * factor) / 8) * 8;
-      height = Math.ceil((height * factor) / 8) * 8;
+      // Grow small pictures to fit the payload. With maxEdge, also shrink large
+      // ones, but never below what the payload needs.
+      const minimum = Math.sqrt(((needed + 200) * 64) / (width * height)),
+        fit = maxEdge ? Math.min(1, maxEdge / Math.max(width, height)) : 1;
+      const factor = Math.max(fit, minimum);
+      width = Math.ceil((width * factor - 1e-6) / 8) * 8;
+      height = Math.ceil((height * factor - 1e-6) / 8) * 8;
       if (width * height > 24000000 || width > 10000 || height > 10000)
         throw new Error(
           'This image is too narrow to carry this data. Choose a less extreme aspect ratio.',
@@ -273,6 +331,7 @@ async function loadImage(file, forEncoding = false, packetSize = 0, method = 'su
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, width, height);
+    ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(image, 0, 0, width, height);
     return {
       canvas,
@@ -320,13 +379,78 @@ async function exportVerified(canvas, packet, attempts) {
   }
   throw new Error('The image did not pass its round-trip check. Try another image.');
 }
+const samePacket = (found, packet) =>
+  found.data.length === packet.length && found.data.every((b, i) => b === packet[i]);
+async function embedInto(file, packet, method, maxEdge = 0) {
+  const loaded = await loadImage(file, true, packet.length, method, maxEdge);
+  let alreadyEncoded = false;
+  try {
+    extract(loaded.pixels);
+    alreadyEncoded = true;
+  } catch {}
+  if (alreadyEncoded)
+    throw new Error(
+      'This image already contains hidden data. Choose the original clean image so its old marks are not kept.',
+    );
+  embed(loaded.pixels, packet, method);
+  loaded.canvas.getContext('2d').putImageData(loaded.pixels, 0, 0);
+  return loaded;
+}
+// Ratspeak (ratspeak-runtime image_attachment.rs) re-saves every photo as JPEG.
+// Under 1 MB it sends automatically: 95% if that fits 750 KB, otherwise its
+// Medium profile at 82%, resizing anything that still does not fit. Over 1 MB
+// it asks for a size, and Medium resizes to 1600 px. Resizing erases photo-mode
+// data, so "Fit for Ratspeak" keeps pictures inside the no-resize path. Limits
+// below leave headroom because Ratspeak's JPEG encoder is not the browser's.
+const RATSPEAK_AUTO_BYTES = 950_000,
+  RATSPEAK_RECODE_BYTES = 600_000;
+async function survivesRatspeak(blob, packet) {
+  const { canvas } = await loadImage(new File([blob], 'sent', { type: blob.type }));
+  for (const quality of [0.95, 0.82]) {
+    const sent = await blobFor(canvas, 'image/jpeg', quality);
+    if (sent.size > RATSPEAK_RECODE_BYTES) continue;
+    const { pixels } = await loadImage(new File([sent], 'received', { type: 'image/jpeg' }));
+    try {
+      return samePacket(extract(pixels), packet);
+    } catch {
+      return false;
+    }
+  }
+  return false; // Ratspeak would resize it.
+}
+// Highest JPEG quality, up to the chosen one, that stays under 1 MB and
+// survives a simulated Ratspeak send. Null means the picture must shrink.
+async function exportForRatspeak(canvas, packet, chosen) {
+  // Never below 80: under that, a second compression by an app erased the
+  // data in testing even when the first export decoded.
+  const steps = [chosen, 97, 92, 85, 80].filter(
+    (q, i, all) => q <= chosen && all.indexOf(q) === i,
+  );
+  for (const q of steps) {
+    const blob = await blobFor(canvas, 'image/jpeg', q / 100);
+    if (blob.type !== 'image/jpeg') return null;
+    if (blob.size > RATSPEAK_AUTO_BYTES) continue;
+    const { pixels } = await loadImage(new File([blob], 'check', { type: 'image/jpeg' }));
+    let found;
+    try {
+      found = extract(pixels);
+    } catch {
+      return null;
+    }
+    if (!samePacket(found, packet) || !(await survivesRatspeak(blob, packet))) return null;
+    return { blob, found, quality: q / 100 };
+  }
+  return null;
+}
 $('encode-form').onsubmit = async (e) => {
   e.preventDefault();
   if (!payloadType) return;
   clearEncoded();
   const revision = encodeRevision,
     type = payloadType,
-    method = document.querySelector('[name="image-method"]:checked').value;
+    method = document.querySelector('[name="image-method"]:checked').value,
+    chosenQuality = photoQuality(),
+    targetEdge = method === 'jpeg' ? photoEdge() : 0;
   const button = $('encode-button');
   button.disabled = true;
   status('encode-status', type === 'paper' ? 'Embedding paper link…' : 'Embedding contact…');
@@ -344,29 +468,37 @@ $('encode-form').onsubmit = async (e) => {
       $('encode-password').value,
       type === 'identity' ? 'identity' : 'lxmf',
     );
-    const { canvas, pixels, originalWidth, originalHeight } = await loadImage(
-      $('encode-file').files[0],
-      true,
-      packet.length,
-      method,
-    );
-    let alreadyEncoded = false;
-    try {
-      extract(pixels);
-      alreadyEncoded = true;
-    } catch {}
-    if (alreadyEncoded)
-      throw new Error(
-        'This image already contains hidden data. Choose the original clean image so its old marks are not kept.',
+    const file = $('encode-file').files[0];
+    let prepared, result;
+    if (targetEdge) {
+      // Shrink to Ratspeak's 1600 px Medium size, then further if needed to
+      // stay under 1 MB, but never below what the payload needs.
+      let edge = targetEdge,
+        first = null;
+      for (let attempt = 0; attempt < 5 && !result; attempt++) {
+        prepared = await embedInto(file, packet, method, edge);
+        first ??= prepared;
+        result = await exportForRatspeak(prepared.canvas, packet, chosenQuality);
+        const longest = Math.max(prepared.canvas.width, prepared.canvas.height);
+        if (longest > edge) break; // Already at the smallest size this payload allows.
+        edge = Math.floor((longest * 0.85) / 8) * 8;
+      }
+      if (!result) {
+        prepared = first;
+        result = await exportVerified(first.canvas, packet, photoExports(chosenQuality));
+      }
+    } else {
+      prepared = await embedInto(file, packet, method);
+      // Verify the exact exported file after reload, not only the in-memory pixels.
+      result = await exportVerified(
+        prepared.canvas,
+        packet,
+        method === 'subtle' ? [['image/png']] : photoExports(chosenQuality),
       );
-    embed(pixels, packet, method);
-    canvas.getContext('2d').putImageData(pixels, 0, 0);
-    // Verify the exact exported file after reload, not only the in-memory pixels.
-    const { blob, found, quality } = await exportVerified(
-      canvas,
-      packet,
-      method === 'subtle' ? [['image/png']] : PHOTO_EXPORTS,
-    );
+    }
+    const { canvas, originalWidth, originalHeight } = prepared,
+      { blob, found, quality } = result,
+      fitted = !!targetEdge && Math.max(canvas.width, canvas.height) <= targetEdge && blob.size <= RATSPEAK_AUTO_BYTES && blob.type === 'image/jpeg';
     const filename = await hashName(blob);
     if (revision !== encodeRevision) return;
     const isJpeg = blob.type === 'image/jpeg';
@@ -377,10 +509,31 @@ $('encode-form').onsubmit = async (e) => {
     $('download').href = encodedURL;
     $('download').download = filename;
     $('encode-result').hidden = false;
-    const resized = canvas.width !== originalWidth || canvas.height !== originalHeight;
+    const percent = Math.round(quality * 100),
+      shrunk = canvas.width < originalWidth || canvas.height < originalHeight,
+      resized = canvas.width !== originalWidth || canvas.height !== originalHeight;
+    const qualityNote =
+      percent > chosenQuality
+        ? ` (raised from ${chosenQuality}%)`
+        : percent < chosenQuality
+          ? ` (lowered from ${chosenQuality}% to stay under 1 MB)`
+          : '';
     $('encoded-info').textContent =
-      `${canvas.width} × ${canvas.height} · ${isJpeg ? `JPEG ${Math.round(quality * 100)}%` : 'PNG'} · ${Math.round(blob.size / 1024)} KB · ${packet[5] ? 'Packrat password protected' : found.kind === 'paper' ? 'Recipient-encrypted paper message' : 'Unprotected'} · ${found.kind === 'paper' ? 'Paper message' : found.kind === 'card' ? 'Full contact card' : found.kind === 'identity' ? 'Identity hash' : 'LXMF address'} · ${method === 'subtle' ? 'Original PNG file' : 'Photo mode (experimental)'}${resized ? ' · Dimensions adjusted to the 8-pixel block grid' : ''}`;
-    status('encode-status', 'Ready to share. Download your image below.', 'success');
+      `${canvas.width} × ${canvas.height} · ${isJpeg ? `JPEG ${percent}%${qualityNote}` : method === 'subtle' ? 'PNG' : 'PNG (JPEG did not keep the data)'} · ${Math.round(blob.size / 1024)} KB · ${packet[5] ? 'Packrat password protected' : found.kind === 'paper' ? 'Recipient-encrypted paper message' : 'Unprotected'} · ${found.kind === 'paper' ? 'Paper message' : found.kind === 'card' ? 'Full contact card' : found.kind === 'identity' ? 'Identity hash' : 'LXMF address'} · ${method === 'subtle' ? 'Original PNG file' : 'Photo mode (experimental)'}${shrunk ? ` · Resized from ${originalWidth} × ${originalHeight}` : resized ? ' · Dimensions adjusted to the 8-pixel block grid' : ''}${fitted ? ` · Sized for ${targetEdge} px apps` : ''}`;
+    if (targetEdge && !fitted)
+      status(
+        'encode-status',
+        `Ready, but this payload needs a picture larger than ${targetEdge} px, so apps that shrink photos will erase it. Send it as a file, or choose Actual size in Ratspeak.`,
+        'warning',
+      );
+    else
+      status(
+        'encode-status',
+        fitted
+          ? `Ready to share. Sized so apps that cap photos at ${targetEdge} px send it without shrinking. Download your image below.`
+          : 'Ready to share. Download your image below.',
+        'success',
+      );
   } catch (err) {
     if (revision === encodeRevision) status('encode-status', err.message, 'error');
   } finally {
@@ -616,6 +769,8 @@ $('try-decode').onclick = () => {
   transfer.items.add(file);
   $('decode-file').files = transfer.files;
   tab('decode');
+  // Start the decode view at its top, not at the Encode result's scroll position.
+  document.querySelector('.workspace').scrollIntoView({ block: 'start' });
   decodeFile(file);
 };
 $('unlock-form').onsubmit = async (e) => {
@@ -702,13 +857,126 @@ $('clear-session').onclick = () => {
   payloadType = null;
   for (const key of Object.keys(contactDrafts)) contactDrafts[key] = '';
   $('encode-inputs').hidden = true;
-  for (const id of ['contact', 'encode-file', 'encode-password', 'encode-button'])
+  for (const id of ['contact', 'encode-file', 'encode-file-paste', 'encode-password', 'encode-button'])
     $(id).disabled = true;
+  $('contact-qr-paste').disabled = true;
+  pictureRevision++;
+  pictureEdge = 0;
+  syncPhotoSize();
+  syncPhotoQuality();
   $('contact-format').hidden = true;
   status('contact-qr-status', '');
   tab('encode');
   $('payload-card').focus();
 };
+// Clipboard paste, alongside the normal file choosers. Images stay local.
+const pasteShortcut = /Mac|iPhone|iPad/.test(
+  navigator.userAgentData?.platform || navigator.platform || '',
+)
+  ? '⌘V'
+  : 'Ctrl+V';
+const pasteStatus = {
+  'contact-qr': 'contact-qr-status',
+  'encode-file': 'encode-status',
+  'decode-file': 'decode-status',
+};
+async function asPastedFile(blob) {
+  if (blob.type === 'image/png' || blob.type === 'image/jpeg')
+    return new File([blob], blob.type === 'image/jpeg' ? 'pasted-image.jpg' : 'pasted-image.png', {
+      type: blob.type,
+    });
+  // Other clipboard formats (WebP, GIF, BMP) are converted to lossless PNG.
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(blob);
+  } catch {
+    throw new Error('The pasted image could not be read. Copy a JPG or PNG image.');
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  canvas.getContext('2d').drawImage(bitmap, 0, 0);
+  bitmap.close();
+  return new File([await blobFor(canvas)], 'pasted-image.png', { type: 'image/png' });
+}
+async function placePastedImage(target, blob) {
+  const input = $(target);
+  if (input.disabled) return;
+  const file = await asPastedFile(blob);
+  const transfer = new DataTransfer();
+  transfer.items.add(file);
+  input.files = transfer.files;
+  // Same events as choosing a file, so the existing handlers run unchanged.
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  if (target !== 'contact-qr') status(pasteStatus[target], 'Image pasted from the clipboard.');
+}
+async function clipboardImage() {
+  if (!navigator.clipboard?.read)
+    throw new Error(
+      `This browser cannot paste images with a button. Press ${pasteShortcut} instead.`,
+    );
+  let items;
+  try {
+    items = await navigator.clipboard.read();
+  } catch {
+    throw new Error(`Clipboard access was blocked. Press ${pasteShortcut} to paste instead.`);
+  }
+  for (const item of items) {
+    const type = item.types.find((t) => t.startsWith('image/'));
+    if (type) return item.getType(type);
+  }
+  throw new Error('There is no image on the clipboard. Copy an image first.');
+}
+for (const button of document.querySelectorAll('[data-paste-target]'))
+  button.addEventListener('click', async () => {
+    const target = button.dataset.pasteTarget;
+    try {
+      await placePastedImage(target, await clipboardImage());
+    } catch (err) {
+      status(pasteStatus[target], err.message, 'error');
+    }
+  });
+// Ctrl/⌘+V: a focused chooser or Paste button wins. Otherwise Decode gets the
+// decode image; Encode sends a readable QR to the QR chooser while the contact
+// is still empty, and anything else to the picture.
+async function pasteTarget(blob) {
+  const active = document.activeElement;
+  const focused = active?.dataset?.pasteTarget || (active?.type === 'file' ? active.id : null);
+  if (focused && pasteStatus[focused]) return focused;
+  if (!$('decode-panel').hidden) return 'decode-file';
+  if (!payloadType) {
+    status('encode-status', 'Choose what to encode first, then paste the picture.', 'error');
+    return null;
+  }
+  if (!$('contact-qr-input').hidden && !$('contact').value.trim()) {
+    try {
+      const { canvas } = await loadImage(await asPastedFile(blob));
+      if (await readContactQr(canvas)) return 'contact-qr';
+    } catch {}
+  }
+  return 'encode-file';
+}
+document.addEventListener('paste', async (event) => {
+  const item = [...(event.clipboardData?.items || [])].find(
+    (i) => i.kind === 'file' && i.type.startsWith('image/'),
+  );
+  if (!item) return; // Ordinary text paste.
+  const active = document.activeElement;
+  const typing =
+    active?.tagName === 'TEXTAREA' || (active?.tagName === 'INPUT' && active.type !== 'file');
+  if (typing && event.clipboardData.types.includes('text/plain')) return;
+  event.preventDefault();
+  const blob = item.getAsFile();
+  if (!blob) return;
+  const target = await pasteTarget(blob);
+  if (!target) return;
+  try {
+    await placePastedImage(target, blob);
+  } catch (err) {
+    status(pasteStatus[target], err.message, 'error');
+  }
+});
 if ($('app-version').textContent === '__APP_VERSION__')
   $('app-version').textContent = 'Development preview';
 

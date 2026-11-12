@@ -334,6 +334,188 @@ try {
   await page.locator('#clear-session').click();
   assert.equal(await page.locator('#contact').inputValue(), '');
   assert.equal(await page.locator('#encode-inputs').isVisible(), false);
+  // Photo quality defaults to 92%, ranges 80-100, and is hidden in file mode.
+  assert.equal(await page.locator('#photo-quality').inputValue(), '92');
+  await page.locator('#payload-card').check();
+  await page.locator('#photo-quality').fill('100');
+  await encode('card', rscp1, 'jpeg');
+  assert.equal(await page.locator('#photo-quality-field').isVisible(), true);
+  assert.match(await page.locator('#encoded-info').innerText(), / · JPEG 100% · /);
+  // The page CSP blocks fetch, so read the size from the result line.
+  const sizeOf = async () =>
+    Number((await page.locator('#encoded-info').innerText()).match(/ · (\d+) KB · /)[1]);
+  const size100 = await sizeOf();
+  await page.locator('#photo-quality').fill('85');
+  assert.equal(await page.locator('#photo-quality-value').innerText(), '85%');
+  await page.locator('#encode-button').click();
+  await page.locator('#encode-result').waitFor();
+  assert.match(await page.locator('#encoded-info').innerText(), / · JPEG (85%|\d+% \(raised from 85%\)) · /);
+  assert.ok((await sizeOf()) < size100, 'lower quality should make a smaller file');
+  // Decode this image starts the decode view at its top.
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await page.locator('#try-decode').click();
+  await page.locator('#decode-result').waitFor();
+  const tabsTop = await page.locator('.tabs').evaluate((t) => t.getBoundingClientRect().top);
+  assert.ok(tabsTop >= -1 && tabsTop < 50, `decode view should start at the top (was ${tabsTop})`);
+  await page.locator('#encode-tab').click();
+  // Fit for Ratspeak (default) shrinks a large photo to 1600 px and under 1 MB.
+  const large = {
+    name: 'large-photo.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(
+      await page.evaluate(() => {
+        const c = document.createElement('canvas');
+        c.width = 3200;
+        c.height = 2400;
+        const x = c.getContext('2d'),
+          d = x.createImageData(c.width, c.height);
+        for (let i = 0, s = 7; i < d.data.length; i += 4) {
+          const p = i / 4,
+            px = p % c.width,
+            py = Math.floor(p / c.width);
+          s = (s * 1103515245 + 12345) >>> 0;
+          const n = (s >>> 24) / 8;
+          d.data[i] = 120 + 80 * Math.sin(px / 150) + n;
+          d.data[i + 1] = 110 + 70 * Math.cos(py / 120) + n;
+          d.data[i + 2] = 90 + 60 * Math.sin((px + py) / 200) + n;
+          d.data[i + 3] = 255;
+        }
+        x.putImageData(d, 0, 0);
+        return c.toDataURL().split(',')[1];
+      }),
+      'base64',
+    ),
+  };
+  // The size choice appears only when the picture is large enough to shrink.
+  assert.equal(await page.locator('#photo-size').isVisible(), false); // 1200 px picture
+  assert.equal(await page.locator('#size-1600').isChecked(), true);
+  await page.locator('#encode-file').setInputFiles(large);
+  await page.locator('#photo-size').waitFor();
+  assert.equal(await page.locator('#size-full-option').isVisible(), true);
+  const mid = {
+    name: 'mid.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(
+      await page.evaluate(() => {
+        const c = document.createElement('canvas');
+        c.width = 1500;
+        c.height = 1000;
+        const x = c.getContext('2d');
+        x.fillStyle = '#7a9';
+        x.fillRect(0, 0, 1500, 1000);
+        return c.toDataURL().split(',')[1];
+      }),
+      'base64',
+    ),
+  };
+  await page.locator('#size-full').check();
+  await page.locator('#encode-file').setInputFiles(mid);
+  await page.waitForFunction(() => document.querySelector('#size-full-option').hidden);
+  assert.equal(await page.locator('#size-1280-option').isVisible(), true);
+  assert.equal(await page.locator('#size-1600').isChecked(), true);
+  await page.locator('#encode-file').setInputFiles(large);
+  await page.waitForFunction(() => !document.querySelector('#size-full-option').hidden);
+  await page.locator('#encode-button').click();
+  await page.locator('#encode-result').waitFor({ timeout: 120000 });
+  const fittedInfo = await page.locator('#encoded-info').innerText();
+  const [fw, fh] = fittedInfo.match(/^(\d+) × (\d+)/).slice(1).map(Number);
+  assert.ok(Math.max(fw, fh) <= 1600, fittedInfo);
+  assert.ok((await sizeOf()) <= 950, fittedInfo);
+  assert.match(fittedInfo, /Resized from 3200 × 2400 · Sized for 1600 px apps/);
+  await page.locator('#try-decode').click();
+  await page.locator('#decode-result').waitFor();
+  assert.equal(await page.locator('#recovered-contact').inputValue(), rscp1);
+  await page.locator('#encode-tab').click();
+  await page.locator('#size-1280').check();
+  await page.locator('#encode-button').click();
+  await page.locator('#encode-result').waitFor({ timeout: 120000 });
+  assert.match(await page.locator('#encoded-info').innerText(), /^1280 × 960 · .*Sized for 1280 px apps/);
+  await page.locator('#size-full').check();
+  await page.locator('#encode-button').click();
+  await page.locator('#encode-result').waitFor({ timeout: 120000 });
+  assert.match(await page.locator('#encoded-info').innerText(), /^3200 × 2400 · JPEG \d+% · /);
+  await page.locator('#size-1600').check();
+  await page.locator('#encode-file').setInputFiles(image);
+  await page.locator('#method-subtle').check();
+  assert.equal(await page.locator('#photo-quality-field').isVisible(), false);
+  await page.locator('#method-jpeg').check();
+  await page.locator('#photo-quality').fill('100');
+  // Paste buttons sit beside each file chooser and read the clipboard.
+  const copyImage = (file) =>
+    page.evaluate(async (b64) => {
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      await navigator.clipboard.write([
+        new ClipboardItem({ 'image/png': new Blob([bytes], { type: 'image/png' }) }),
+      ]);
+    }, file.buffer.toString('base64'));
+  const fileName = (id) => page.locator('#' + id).evaluate((i) => i.files[0]?.name || '');
+  await page.locator('#clear-session').click();
+  await page.locator('#payload-card').check();
+  await copyImage(qrImage);
+  await page.locator('#contact-qr-paste').click();
+  await page.waitForFunction(() =>
+    document.querySelector('#contact-qr-status').textContent.includes('loaded'),
+  );
+  assert.equal(await page.locator('#contact').inputValue(), rscp2);
+  await copyImage(image);
+  await page.locator('#encode-file-paste').click();
+  await page.waitForFunction(
+    () =>
+      document.querySelector('#encode-file').files.length === 1 ||
+      document.querySelector('#encode-status').dataset.kind === 'error',
+  );
+  assert.equal(await fileName('encode-file'), 'pasted-image.png');
+  await page.locator('#encode-button').click();
+  await page.locator('#encode-result').waitFor();
+  const [pastedDownload] = await Promise.all([
+    page.waitForEvent('download'),
+    page.locator('#download').click(),
+  ]);
+  const pastedEncoded = await readFile(await pastedDownload.path());
+  // Ctrl/⌘+V with nothing focused: a QR fills the contact, then a picture fills the image.
+  const pasteEvent = (file, type = 'image/png') =>
+    page.evaluate(
+      async ([b64, mime]) => {
+        document.activeElement?.blur();
+        const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+        const data = new DataTransfer();
+        data.items.add(new File([bytes], 'clip', { type: mime }));
+        document.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true }));
+      },
+      [file.buffer.toString('base64'), type],
+    );
+  await page.locator('#clear-session').click();
+  await page.locator('#payload-card').check();
+  await pasteEvent(qrImage);
+  await page.waitForFunction(() =>
+    document.querySelector('#contact-qr-status').textContent.includes('loaded'),
+  );
+  assert.equal(await page.locator('#contact').inputValue(), rscp2);
+  assert.equal(await fileName('encode-file'), '');
+  await pasteEvent(image);
+  await page.waitForFunction(() => document.querySelector('#encode-file').files.length === 1);
+  assert.equal(await fileName('encode-file'), 'pasted-image.png');
+  await page.locator('#decode-tab').click();
+  await pasteEvent({ buffer: pastedEncoded }, 'image/jpeg');
+  await page.waitForFunction(() => document.querySelector('#decode-file').files.length === 1);
+  assert.equal(await fileName('decode-file'), 'pasted-image.jpg');
+  await page.locator('#decode-button').click();
+  await page.locator('#decode-result').waitFor();
+  assert.equal(await page.locator('#recovered-contact').inputValue(), rscp2);
+  // Text pastes into fields are left alone.
+  await page.locator('#encode-tab').click();
+  await page.locator('#contact').focus();
+  assert.equal(
+    await page.evaluate(() => {
+      const data = new DataTransfer();
+      data.setData('text/plain', 'typed');
+      const e = new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true });
+      document.querySelector('#contact').dispatchEvent(e);
+      return e.defaultPrevented;
+    }),
+    false,
+  );
+  await page.locator('#clear-session').click();
   // Save the actual offline-button download and execute those bytes with network disabled.
   const [offlineDownload] = await Promise.all([
     page.waitForEvent('download'),
