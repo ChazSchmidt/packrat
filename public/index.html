@@ -68,10 +68,18 @@
           <label class="payload-option" for="method-jpeg"><input id="method-jpeg" type="radio" name="image-method" value="jpeg" checked><span><strong>Send as a photo</strong><span class="choice-description">Downloads a JPEG designed to tolerate further compression, with slightly more visible changes. Resizing or cropping can erase the contact. Test the received image before relying on it.</span></span></label>
           <label class="payload-option" for="method-subtle"><input id="method-subtle" type="radio" name="image-method" value="subtle"><span><strong>Send as a file</strong><span class="choice-description">Smallest changes to the picture. Send the downloaded PNG as a file or document, without resizing. Photo compression can erase the contact.</span></span></label>
           <div id="photo-quality-field" class="photo-quality">
-            <label class="check-option" for="ratspeak-fit"><input id="ratspeak-fit" type="checkbox" checked aria-describedby="ratspeak-fit-help"><span><strong>Fit for Ratspeak</strong> <span class="optional">(recommended)</span><span id="ratspeak-fit-help" class="choice-description">Shrinks large pictures to 1600 pixels on the long side and keeps the file under 1 MB, so Ratspeak sends it without resizing, which would erase the contact. Turn off to keep full size for other apps.</span></span></label>
-            <label for="photo-quality">Photo quality: <output id="photo-quality-value" for="photo-quality">100%</output></label>
-            <input id="photo-quality" type="range" min="70" max="100" step="5" value="100" aria-describedby="photo-quality-help">
-            <p class="hint" id="photo-quality-help">Lower makes a smaller file. If the hidden data does not survive a lower setting, Packrat raises it automatically. With Fit for Ratspeak on, this is the highest quality used.</p>
+            <fieldset class="size-options" aria-describedby="photo-size-help">
+              <legend>Picture size</legend>
+              <p class="hint field-help" id="photo-size-help">Chat apps shrink bigger photos when sending them, and shrinking erases the contact. Pick the app you will send it through.</p>
+              <div class="segmented">
+                <label for="size-1280"><input id="size-1280" type="radio" name="photo-size" value="1280"><span><strong>1280 px</strong><span class="segment-apps">Telegram + all above</span></span></label>
+                <label for="size-1600"><input id="size-1600" type="radio" name="photo-size" value="1600" checked><span><strong>1600 px</strong><span class="segment-apps">Ratspeak, Signal, WhatsApp</span></span></label>
+                <label for="size-full"><input id="size-full" type="radio" name="photo-size" value="0"><span><strong>Full size</strong><span class="segment-apps">X, Discord, email</span></span></label>
+              </div>
+            </fieldset>
+            <label for="photo-quality">Photo quality: <output id="photo-quality-value" for="photo-quality">92%</output></label>
+            <input id="photo-quality" type="range" min="80" max="100" step="1" value="92" list="photo-quality-marks"><datalist id="photo-quality-marks"><option value="80"></option><option value="92"></option><option value="100"></option></datalist aria-describedby="photo-quality-help">
+            <p class="hint" id="photo-quality-help">92% looks the same as 100% at around a third of the file size, and held up to a second round of app compression in testing. At 1280 or 1600 px, Packrat may lower it to keep the file under 1 MB. It raises it if the hidden data does not survive.</p>
           </div>
         </fieldset>
         <p id="paper-protection-help" class="hint" hidden>This message is already encrypted for its recipient. A Packrat password adds a separate lock around the link. The recipient needs this password as well as the correct Ratspeak identity.</p>

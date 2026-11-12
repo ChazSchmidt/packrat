@@ -334,8 +334,10 @@ try {
   await page.locator('#clear-session').click();
   assert.equal(await page.locator('#contact').inputValue(), '');
   assert.equal(await page.locator('#encode-inputs').isVisible(), false);
-  // Photo quality defaults to 100%, can be lowered, and is hidden in file mode.
-  assert.equal(await page.locator('#photo-quality').inputValue(), '100');
+  // Photo quality defaults to 92%, ranges 80-100, and is hidden in file mode.
+  assert.equal(await page.locator('#photo-quality').inputValue(), '92');
+  await page.locator('#payload-card').check();
+  await page.locator('#photo-quality').fill('100');
   await encode('card', rscp1, 'jpeg');
   assert.equal(await page.locator('#photo-quality-field').isVisible(), true);
   assert.match(await page.locator('#encoded-info').innerText(), / · JPEG 100% · /);
@@ -384,7 +386,7 @@ try {
       'base64',
     ),
   };
-  assert.equal(await page.locator('#ratspeak-fit').isChecked(), true);
+  assert.equal(await page.locator('#size-1600').isChecked(), true);
   await page.locator('#encode-file').setInputFiles(large);
   await page.locator('#encode-button').click();
   await page.locator('#encode-result').waitFor({ timeout: 120000 });
@@ -392,16 +394,20 @@ try {
   const [fw, fh] = fittedInfo.match(/^(\d+) × (\d+)/).slice(1).map(Number);
   assert.ok(Math.max(fw, fh) <= 1600, fittedInfo);
   assert.ok((await sizeOf()) <= 950, fittedInfo);
-  assert.match(fittedInfo, /Resized from 3200 × 2400 · Sized for Ratspeak/);
+  assert.match(fittedInfo, /Resized from 3200 × 2400 · Sized for 1600 px apps/);
   await page.locator('#try-decode').click();
   await page.locator('#decode-result').waitFor();
   assert.equal(await page.locator('#recovered-contact').inputValue(), rscp1);
   await page.locator('#encode-tab').click();
-  await page.locator('#ratspeak-fit').uncheck();
+  await page.locator('#size-1280').check();
+  await page.locator('#encode-button').click();
+  await page.locator('#encode-result').waitFor({ timeout: 120000 });
+  assert.match(await page.locator('#encoded-info').innerText(), /^1280 × 960 · .*Sized for 1280 px apps/);
+  await page.locator('#size-full').check();
   await page.locator('#encode-button').click();
   await page.locator('#encode-result').waitFor({ timeout: 120000 });
   assert.match(await page.locator('#encoded-info').innerText(), /^3200 × 2400 · JPEG \d+% · /);
-  await page.locator('#ratspeak-fit').check();
+  await page.locator('#size-1600').check();
   await page.locator('#encode-file').setInputFiles(image);
   await page.locator('#method-subtle').check();
   assert.equal(await page.locator('#photo-quality-field').isVisible(), false);

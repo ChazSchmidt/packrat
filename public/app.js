@@ -28,7 +28,7 @@ function photoExports(percent) {
   return [...steps.map((q) => ['image/jpeg', q / 100]), ['image/png']];
 }
 function photoQuality() {
-  return Math.min(100, Math.max(70, Number($('photo-quality').value) || 100));
+  return Math.min(100, Math.max(80, Number($('photo-quality').value) || 92));
 }
 function status(id, text, kind = '') {
   $(id).textContent = text;
@@ -152,7 +152,9 @@ for (const radio of document.querySelectorAll('[name="image-method"]'))
     clearEncoded();
     syncPhotoQuality();
   });
-$('ratspeak-fit').addEventListener('change', clearEncoded);
+for (const radio of document.querySelectorAll('[name="photo-size"]'))
+  radio.addEventListener('change', clearEncoded);
+const photoEdge = () => Number(document.querySelector('[name="photo-size"]:checked').value);
 $('photo-quality').addEventListener('input', () => {
   syncPhotoQuality();
   clearEncoded();
@@ -364,8 +366,7 @@ async function embedInto(file, packet, method, maxEdge = 0) {
 // it asks for a size, and Medium resizes to 1600 px. Resizing erases photo-mode
 // data, so "Fit for Ratspeak" keeps pictures inside the no-resize path. Limits
 // below leave headroom because Ratspeak's JPEG encoder is not the browser's.
-const RATSPEAK_EDGE = 1600,
-  RATSPEAK_AUTO_BYTES = 950_000,
+const RATSPEAK_AUTO_BYTES = 950_000,
   RATSPEAK_RECODE_BYTES = 600_000;
 async function survivesRatspeak(blob, packet) {
   const { canvas } = await loadImage(new File([blob], 'sent', { type: blob.type }));
@@ -384,7 +385,9 @@ async function survivesRatspeak(blob, packet) {
 // Highest JPEG quality, up to the chosen one, that stays under 1 MB and
 // survives a simulated Ratspeak send. Null means the picture must shrink.
 async function exportForRatspeak(canvas, packet, chosen) {
-  const steps = [chosen, 97, 92, 85, 80, 75, 70].filter(
+  // Never below 80: under that, a second compression by an app erased the
+  // data in testing even when the first export decoded.
+  const steps = [chosen, 97, 92, 85, 80].filter(
     (q, i, all) => q <= chosen && all.indexOf(q) === i,
   );
   for (const q of steps) {
@@ -411,7 +414,7 @@ $('encode-form').onsubmit = async (e) => {
     type = payloadType,
     method = document.querySelector('[name="image-method"]:checked').value,
     chosenQuality = photoQuality(),
-    fitRatspeak = method === 'jpeg' && $('ratspeak-fit').checked;
+    targetEdge = method === 'jpeg' ? photoEdge() : 0;
   const button = $('encode-button');
   button.disabled = true;
   status('encode-status', type === 'paper' ? 'Embedding paper link…' : 'Embedding contact…');
@@ -431,10 +434,10 @@ $('encode-form').onsubmit = async (e) => {
     );
     const file = $('encode-file').files[0];
     let prepared, result;
-    if (fitRatspeak) {
+    if (targetEdge) {
       // Shrink to Ratspeak's 1600 px Medium size, then further if needed to
       // stay under 1 MB, but never below what the payload needs.
-      let edge = RATSPEAK_EDGE,
+      let edge = targetEdge,
         first = null;
       for (let attempt = 0; attempt < 5 && !result; attempt++) {
         prepared = await embedInto(file, packet, method, edge);
@@ -459,7 +462,7 @@ $('encode-form').onsubmit = async (e) => {
     }
     const { canvas, originalWidth, originalHeight } = prepared,
       { blob, found, quality } = result,
-      fitted = fitRatspeak && blob.size <= RATSPEAK_AUTO_BYTES && blob.type === 'image/jpeg';
+      fitted = !!targetEdge && Math.max(canvas.width, canvas.height) <= targetEdge && blob.size <= RATSPEAK_AUTO_BYTES && blob.type === 'image/jpeg';
     const filename = await hashName(blob);
     if (revision !== encodeRevision) return;
     const isJpeg = blob.type === 'image/jpeg';
@@ -480,18 +483,18 @@ $('encode-form').onsubmit = async (e) => {
           ? ` (lowered from ${chosenQuality}% to stay under 1 MB)`
           : '';
     $('encoded-info').textContent =
-      `${canvas.width} × ${canvas.height} · ${isJpeg ? `JPEG ${percent}%${qualityNote}` : method === 'subtle' ? 'PNG' : 'PNG (JPEG did not keep the data)'} · ${Math.round(blob.size / 1024)} KB · ${packet[5] ? 'Packrat password protected' : found.kind === 'paper' ? 'Recipient-encrypted paper message' : 'Unprotected'} · ${found.kind === 'paper' ? 'Paper message' : found.kind === 'card' ? 'Full contact card' : found.kind === 'identity' ? 'Identity hash' : 'LXMF address'} · ${method === 'subtle' ? 'Original PNG file' : 'Photo mode (experimental)'}${shrunk ? ` · Resized from ${originalWidth} × ${originalHeight}` : resized ? ' · Dimensions adjusted to the 8-pixel block grid' : ''}${fitted ? ' · Sized for Ratspeak' : ''}`;
-    if (fitRatspeak && !fitted)
+      `${canvas.width} × ${canvas.height} · ${isJpeg ? `JPEG ${percent}%${qualityNote}` : method === 'subtle' ? 'PNG' : 'PNG (JPEG did not keep the data)'} · ${Math.round(blob.size / 1024)} KB · ${packet[5] ? 'Packrat password protected' : found.kind === 'paper' ? 'Recipient-encrypted paper message' : 'Unprotected'} · ${found.kind === 'paper' ? 'Paper message' : found.kind === 'card' ? 'Full contact card' : found.kind === 'identity' ? 'Identity hash' : 'LXMF address'} · ${method === 'subtle' ? 'Original PNG file' : 'Photo mode (experimental)'}${shrunk ? ` · Resized from ${originalWidth} × ${originalHeight}` : resized ? ' · Dimensions adjusted to the 8-pixel block grid' : ''}${fitted ? ` · Sized for ${targetEdge} px apps` : ''}`;
+    if (targetEdge && !fitted)
       status(
         'encode-status',
-        'Ready, but this image is too large for Ratspeak to send without resizing it, which would erase the hidden data. When sending in Ratspeak, choose Actual size.',
+        `Ready, but this payload needs a picture larger than ${targetEdge} px, so apps that shrink photos will erase it. Send it as a file, or choose Actual size in Ratspeak.`,
         'warning',
       );
     else
       status(
         'encode-status',
         fitted
-          ? 'Ready to share. Sized so Ratspeak sends it without resizing. Download your image below.'
+          ? `Ready to share. Sized so apps that cap photos at ${targetEdge} px send it without shrinking. Download your image below.`
           : 'Ready to share. Download your image below.',
         'success',
       );
