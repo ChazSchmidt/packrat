@@ -21,13 +21,15 @@ let encodeRevision = 0,
 let payloadType = null;
 const contactDrafts = { card: '', paper: '', lxmf: '', identity: '' };
 const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
-// Photo-mode export tries JPEG first, rising in quality, and falls back to PNG.
-const PHOTO_EXPORTS = [
-  ['image/jpeg', 0.85],
-  ['image/jpeg', 0.92],
-  ['image/jpeg', 0.97],
-  ['image/png'],
-];
+// Photo-mode export starts at the chosen JPEG quality, rises if the packet
+// does not survive, and falls back to PNG.
+function photoExports(percent) {
+  const steps = [percent, ...[85, 92, 97, 100].filter((q) => q > percent)];
+  return [...steps.map((q) => ['image/jpeg', q / 100]), ['image/png']];
+}
+function photoQuality() {
+  return Math.min(100, Math.max(70, Number($('photo-quality').value) || 100));
+}
 function status(id, text, kind = '') {
   $(id).textContent = text;
   $(id).dataset.kind = kind;
@@ -103,7 +105,7 @@ for (const radio of document.querySelectorAll('[name="payload-type"]'))
     clearEncoded();
     const instructions = payloadInstructions[payloadType];
     $('encode-inputs').hidden = false;
-    for (const id of ['contact', 'encode-file', 'encode-password', 'encode-button'])
+    for (const id of ['contact', 'encode-file', 'encode-file-paste', 'encode-password', 'encode-button'])
       $(id).disabled = false;
     $('contact-label').textContent = instructions.label;
     $('contact-help').textContent = instructions.help;
@@ -115,6 +117,7 @@ for (const radio of document.querySelectorAll('[name="payload-type"]'))
       hasQr = isPaper || payloadType === 'card';
     $('contact-qr-input').hidden = !hasQr;
     $('contact-qr').disabled = !hasQr;
+    $('contact-qr-paste').disabled = !hasQr;
     $('contact-qr').value = '';
     $('contact-qr-label').textContent = isPaper
       ? 'Choose your paper-message QR'
@@ -140,8 +143,20 @@ for (const radio of document.querySelectorAll('[name="payload-type"]'))
         : 'The QR is read on your device and its contact text is filled in below.',
     );
   });
+function syncPhotoQuality() {
+  $('photo-quality-field').hidden = !$('method-jpeg').checked;
+  $('photo-quality-value').value = photoQuality() + '%';
+}
 for (const radio of document.querySelectorAll('[name="image-method"]'))
-  radio.addEventListener('change', clearEncoded);
+  radio.addEventListener('change', () => {
+    clearEncoded();
+    syncPhotoQuality();
+  });
+$('photo-quality').addEventListener('input', () => {
+  syncPhotoQuality();
+  clearEncoded();
+});
+syncPhotoQuality();
 for (const id of ['encode-file', 'contact', 'encode-password'])
   $(id).addEventListener('input', clearEncoded);
 $('contact').addEventListener('input', () => {
@@ -326,7 +341,8 @@ $('encode-form').onsubmit = async (e) => {
   clearEncoded();
   const revision = encodeRevision,
     type = payloadType,
-    method = document.querySelector('[name="image-method"]:checked').value;
+    method = document.querySelector('[name="image-method"]:checked').value,
+    chosenQuality = photoQuality();
   const button = $('encode-button');
   button.disabled = true;
   status('encode-status', type === 'paper' ? 'Embedding paper link…' : 'Embedding contact…');
@@ -365,7 +381,7 @@ $('encode-form').onsubmit = async (e) => {
     const { blob, found, quality } = await exportVerified(
       canvas,
       packet,
-      method === 'subtle' ? [['image/png']] : PHOTO_EXPORTS,
+      method === 'subtle' ? [['image/png']] : photoExports(chosenQuality),
     );
     const filename = await hashName(blob);
     if (revision !== encodeRevision) return;
@@ -379,7 +395,7 @@ $('encode-form').onsubmit = async (e) => {
     $('encode-result').hidden = false;
     const resized = canvas.width !== originalWidth || canvas.height !== originalHeight;
     $('encoded-info').textContent =
-      `${canvas.width} × ${canvas.height} · ${isJpeg ? `JPEG ${Math.round(quality * 100)}%` : 'PNG'} · ${Math.round(blob.size / 1024)} KB · ${packet[5] ? 'Packrat password protected' : found.kind === 'paper' ? 'Recipient-encrypted paper message' : 'Unprotected'} · ${found.kind === 'paper' ? 'Paper message' : found.kind === 'card' ? 'Full contact card' : found.kind === 'identity' ? 'Identity hash' : 'LXMF address'} · ${method === 'subtle' ? 'Original PNG file' : 'Photo mode (experimental)'}${resized ? ' · Dimensions adjusted to the 8-pixel block grid' : ''}`;
+      `${canvas.width} × ${canvas.height} · ${isJpeg ? `JPEG ${Math.round(quality * 100)}%${Math.round(quality * 100) > chosenQuality ? ` (raised from ${chosenQuality}%)` : ''}` : method === 'subtle' ? 'PNG' : 'PNG (JPEG did not keep the data)'} · ${Math.round(blob.size / 1024)} KB · ${packet[5] ? 'Packrat password protected' : found.kind === 'paper' ? 'Recipient-encrypted paper message' : 'Unprotected'} · ${found.kind === 'paper' ? 'Paper message' : found.kind === 'card' ? 'Full contact card' : found.kind === 'identity' ? 'Identity hash' : 'LXMF address'} · ${method === 'subtle' ? 'Original PNG file' : 'Photo mode (experimental)'}${resized ? ' · Dimensions adjusted to the 8-pixel block grid' : ''}`;
     status('encode-status', 'Ready to share. Download your image below.', 'success');
   } catch (err) {
     if (revision === encodeRevision) status('encode-status', err.message, 'error');
@@ -702,13 +718,123 @@ $('clear-session').onclick = () => {
   payloadType = null;
   for (const key of Object.keys(contactDrafts)) contactDrafts[key] = '';
   $('encode-inputs').hidden = true;
-  for (const id of ['contact', 'encode-file', 'encode-password', 'encode-button'])
+  for (const id of ['contact', 'encode-file', 'encode-file-paste', 'encode-password', 'encode-button'])
     $(id).disabled = true;
+  $('contact-qr-paste').disabled = true;
+  syncPhotoQuality();
   $('contact-format').hidden = true;
   status('contact-qr-status', '');
   tab('encode');
   $('payload-card').focus();
 };
+// Clipboard paste, alongside the normal file choosers. Images stay local.
+const pasteShortcut = /Mac|iPhone|iPad/.test(
+  navigator.userAgentData?.platform || navigator.platform || '',
+)
+  ? '⌘V'
+  : 'Ctrl+V';
+const pasteStatus = {
+  'contact-qr': 'contact-qr-status',
+  'encode-file': 'encode-status',
+  'decode-file': 'decode-status',
+};
+async function asPastedFile(blob) {
+  if (blob.type === 'image/png' || blob.type === 'image/jpeg')
+    return new File([blob], blob.type === 'image/jpeg' ? 'pasted-image.jpg' : 'pasted-image.png', {
+      type: blob.type,
+    });
+  // Other clipboard formats (WebP, GIF, BMP) are converted to lossless PNG.
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(blob);
+  } catch {
+    throw new Error('The pasted image could not be read. Copy a JPG or PNG image.');
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  canvas.getContext('2d').drawImage(bitmap, 0, 0);
+  bitmap.close();
+  return new File([await blobFor(canvas)], 'pasted-image.png', { type: 'image/png' });
+}
+async function placePastedImage(target, blob) {
+  const input = $(target);
+  if (input.disabled) return;
+  const file = await asPastedFile(blob);
+  const transfer = new DataTransfer();
+  transfer.items.add(file);
+  input.files = transfer.files;
+  // Same events as choosing a file, so the existing handlers run unchanged.
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  if (target !== 'contact-qr') status(pasteStatus[target], 'Image pasted from the clipboard.');
+}
+async function clipboardImage() {
+  if (!navigator.clipboard?.read)
+    throw new Error(
+      `This browser cannot paste images with a button. Press ${pasteShortcut} instead.`,
+    );
+  let items;
+  try {
+    items = await navigator.clipboard.read();
+  } catch {
+    throw new Error(`Clipboard access was blocked. Press ${pasteShortcut} to paste instead.`);
+  }
+  for (const item of items) {
+    const type = item.types.find((t) => t.startsWith('image/'));
+    if (type) return item.getType(type);
+  }
+  throw new Error('There is no image on the clipboard. Copy an image first.');
+}
+for (const button of document.querySelectorAll('[data-paste-target]'))
+  button.addEventListener('click', async () => {
+    const target = button.dataset.pasteTarget;
+    try {
+      await placePastedImage(target, await clipboardImage());
+    } catch (err) {
+      status(pasteStatus[target], err.message, 'error');
+    }
+  });
+// Ctrl/⌘+V: a focused chooser or Paste button wins. Otherwise Decode gets the
+// decode image; Encode sends a readable QR to the QR chooser while the contact
+// is still empty, and anything else to the picture.
+async function pasteTarget(blob) {
+  const active = document.activeElement;
+  const focused = active?.dataset?.pasteTarget || (active?.type === 'file' ? active.id : null);
+  if (focused && pasteStatus[focused]) return focused;
+  if (!$('decode-panel').hidden) return 'decode-file';
+  if (!payloadType) {
+    status('encode-status', 'Choose what to encode first, then paste the picture.', 'error');
+    return null;
+  }
+  if (!$('contact-qr-input').hidden && !$('contact').value.trim()) {
+    try {
+      const { canvas } = await loadImage(await asPastedFile(blob));
+      if (await readContactQr(canvas)) return 'contact-qr';
+    } catch {}
+  }
+  return 'encode-file';
+}
+document.addEventListener('paste', async (event) => {
+  const item = [...(event.clipboardData?.items || [])].find(
+    (i) => i.kind === 'file' && i.type.startsWith('image/'),
+  );
+  if (!item) return; // Ordinary text paste.
+  const active = document.activeElement;
+  const typing =
+    active?.tagName === 'TEXTAREA' || (active?.tagName === 'INPUT' && active.type !== 'file');
+  if (typing && event.clipboardData.types.includes('text/plain')) return;
+  event.preventDefault();
+  const blob = item.getAsFile();
+  if (!blob) return;
+  const target = await pasteTarget(blob);
+  if (!target) return;
+  try {
+    await placePastedImage(target, blob);
+  } catch (err) {
+    status(pasteStatus[target], err.message, 'error');
+  }
+});
 if ($('app-version').textContent === '__APP_VERSION__')
   $('app-version').textContent = 'Development preview';
 

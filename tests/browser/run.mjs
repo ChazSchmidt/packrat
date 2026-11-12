@@ -334,6 +334,101 @@ try {
   await page.locator('#clear-session').click();
   assert.equal(await page.locator('#contact').inputValue(), '');
   assert.equal(await page.locator('#encode-inputs').isVisible(), false);
+  // Photo quality defaults to 100%, can be lowered, and is hidden in file mode.
+  assert.equal(await page.locator('#photo-quality').inputValue(), '100');
+  await encode('card', rscp1, 'jpeg');
+  assert.equal(await page.locator('#photo-quality-field').isVisible(), true);
+  assert.match(await page.locator('#encoded-info').innerText(), / · JPEG 100% · /);
+  // The page CSP blocks fetch, so read the size from the result line.
+  const sizeOf = async () =>
+    Number((await page.locator('#encoded-info').innerText()).match(/ · (\d+) KB · /)[1]);
+  const size100 = await sizeOf();
+  await page.locator('#photo-quality').fill('85');
+  assert.equal(await page.locator('#photo-quality-value').innerText(), '85%');
+  await page.locator('#encode-button').click();
+  await page.locator('#encode-result').waitFor();
+  assert.match(await page.locator('#encoded-info').innerText(), / · JPEG (85%|\d+% \(raised from 85%\)) · /);
+  assert.ok((await sizeOf()) < size100, 'lower quality should make a smaller file');
+  await page.locator('#method-subtle').check();
+  assert.equal(await page.locator('#photo-quality-field').isVisible(), false);
+  await page.locator('#method-jpeg').check();
+  await page.locator('#photo-quality').fill('100');
+  // Paste buttons sit beside each file chooser and read the clipboard.
+  const copyImage = (file) =>
+    page.evaluate(async (b64) => {
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      await navigator.clipboard.write([
+        new ClipboardItem({ 'image/png': new Blob([bytes], { type: 'image/png' }) }),
+      ]);
+    }, file.buffer.toString('base64'));
+  const fileName = (id) => page.locator('#' + id).evaluate((i) => i.files[0]?.name || '');
+  await page.locator('#clear-session').click();
+  await page.locator('#payload-card').check();
+  await copyImage(qrImage);
+  await page.locator('#contact-qr-paste').click();
+  await page.waitForFunction(() =>
+    document.querySelector('#contact-qr-status').textContent.includes('loaded'),
+  );
+  assert.equal(await page.locator('#contact').inputValue(), rscp2);
+  await copyImage(image);
+  await page.locator('#encode-file-paste').click();
+  await page.waitForFunction(
+    () =>
+      document.querySelector('#encode-file').files.length === 1 ||
+      document.querySelector('#encode-status').dataset.kind === 'error',
+  );
+  assert.equal(await fileName('encode-file'), 'pasted-image.png');
+  await page.locator('#encode-button').click();
+  await page.locator('#encode-result').waitFor();
+  const [pastedDownload] = await Promise.all([
+    page.waitForEvent('download'),
+    page.locator('#download').click(),
+  ]);
+  const pastedEncoded = await readFile(await pastedDownload.path());
+  // Ctrl/⌘+V with nothing focused: a QR fills the contact, then a picture fills the image.
+  const pasteEvent = (file, type = 'image/png') =>
+    page.evaluate(
+      async ([b64, mime]) => {
+        document.activeElement?.blur();
+        const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+        const data = new DataTransfer();
+        data.items.add(new File([bytes], 'clip', { type: mime }));
+        document.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true }));
+      },
+      [file.buffer.toString('base64'), type],
+    );
+  await page.locator('#clear-session').click();
+  await page.locator('#payload-card').check();
+  await pasteEvent(qrImage);
+  await page.waitForFunction(() =>
+    document.querySelector('#contact-qr-status').textContent.includes('loaded'),
+  );
+  assert.equal(await page.locator('#contact').inputValue(), rscp2);
+  assert.equal(await fileName('encode-file'), '');
+  await pasteEvent(image);
+  await page.waitForFunction(() => document.querySelector('#encode-file').files.length === 1);
+  assert.equal(await fileName('encode-file'), 'pasted-image.png');
+  await page.locator('#decode-tab').click();
+  await pasteEvent({ buffer: pastedEncoded }, 'image/jpeg');
+  await page.waitForFunction(() => document.querySelector('#decode-file').files.length === 1);
+  assert.equal(await fileName('decode-file'), 'pasted-image.jpg');
+  await page.locator('#decode-button').click();
+  await page.locator('#decode-result').waitFor();
+  assert.equal(await page.locator('#recovered-contact').inputValue(), rscp2);
+  // Text pastes into fields are left alone.
+  await page.locator('#encode-tab').click();
+  await page.locator('#contact').focus();
+  assert.equal(
+    await page.evaluate(() => {
+      const data = new DataTransfer();
+      data.setData('text/plain', 'typed');
+      const e = new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true });
+      document.querySelector('#contact').dispatchEvent(e);
+      return e.defaultPrevented;
+    }),
+    false,
+  );
+  await page.locator('#clear-session').click();
   // Save the actual offline-button download and execute those bytes with network disabled.
   const [offlineDownload] = await Promise.all([
     page.waitForEvent('download'),

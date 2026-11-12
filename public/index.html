@@ -53,7 +53,7 @@
         <section id="contact-qr-input" hidden aria-label="Load a full contact card">
           <label id="contact-qr-label" for="contact-qr">Choose your contact QR</label>
           <p id="contact-qr-help" class="hint field-help">In Ratspeak: open your identity → Share Contact Card → Share QR. The normal and Legacy formats both work.</p>
-          <input id="contact-qr" type="file" accept="image/png,image/jpeg">
+          <div class="file-row"><input id="contact-qr" type="file" accept="image/png,image/jpeg"><button id="contact-qr-paste" class="paste-button" type="button" data-paste-target="contact-qr" aria-label="Paste QR image from clipboard">Paste</button></div>
           <p class="hint" id="contact-qr-status" role="status">The QR is read on your device and its contact text is filled in below.</p>
         </section>
         <label id="contact-label" for="contact">Your contact</label>
@@ -61,12 +61,17 @@
         <textarea id="contact" rows="2" spellcheck="false" autocomplete="off" autocapitalize="off" disabled required aria-describedby="contact-help contact-format"></textarea>
         <p class="hint" id="contact-format" role="status" hidden></p>
         <label for="encode-file">Choose the picture to share</label>
-        <input id="encode-file" type="file" accept="image/jpeg,image/png" required disabled aria-describedby="encode-file-help">
+        <div class="file-row"><input id="encode-file" type="file" accept="image/jpeg,image/png" required disabled aria-describedby="encode-file-help"><button id="encode-file-paste" class="paste-button" type="button" data-paste-target="encode-file" aria-label="Paste picture from clipboard" disabled>Paste</button></div>
         <p class="hint" id="encode-file-help">JPG or PNG, up to 20 MB. The image is read only on your device.</p>
         <fieldset class="share-methods">
           <legend>How will you share the image?</legend>
-          <label class="payload-option" for="method-jpeg"><input id="method-jpeg" type="radio" name="image-method" value="jpeg" checked><span><strong>Send as a photo</strong><span class="choice-description">Downloads a compact JPEG designed to tolerate further compression, with slightly more visible changes. Resizing or cropping can erase the contact. Test the received image before relying on it.</span></span></label>
+          <label class="payload-option" for="method-jpeg"><input id="method-jpeg" type="radio" name="image-method" value="jpeg" checked><span><strong>Send as a photo</strong><span class="choice-description">Downloads a JPEG designed to tolerate further compression, with slightly more visible changes. Resizing or cropping can erase the contact. Test the received image before relying on it.</span></span></label>
           <label class="payload-option" for="method-subtle"><input id="method-subtle" type="radio" name="image-method" value="subtle"><span><strong>Send as a file</strong><span class="choice-description">Smallest changes to the picture. Send the downloaded PNG as a file or document, without resizing. Photo compression can erase the contact.</span></span></label>
+          <div id="photo-quality-field" class="photo-quality">
+            <label for="photo-quality">Photo quality: <output id="photo-quality-value" for="photo-quality">100%</output></label>
+            <input id="photo-quality" type="range" min="70" max="100" step="5" value="100" aria-describedby="photo-quality-help">
+            <p class="hint" id="photo-quality-help">100% keeps the most detail for sharing anywhere. Lower makes a smaller file. If the hidden data does not survive a lower setting, Packrat raises it automatically.</p>
+          </div>
         </fieldset>
         <p id="paper-protection-help" class="hint" hidden>This message is already encrypted for its recipient. A Packrat password adds a separate lock around the link. The recipient needs this password as well as the correct Ratspeak identity.</p>
         <label for="encode-password">Password <span class="optional">(optional)</span></label>
@@ -104,8 +109,8 @@
   <section id="decode-panel" role="tabpanel" aria-labelledby="decode-tab" hidden>
     <form id="decode-form">
       <label for="decode-file">Choose the image you received</label>
-      <input id="decode-file" type="file" accept="image/jpeg,image/png" required aria-describedby="decode-file-help">
-      <p class="hint" id="decode-file-help">Choose an image with a hidden contact or paper message, or an ordinary contact or lxm:// paper QR. JPG or PNG, up to 20 MB.</p>
+      <div class="file-row"><input id="decode-file" type="file" accept="image/jpeg,image/png" required aria-describedby="decode-file-help"><button id="decode-file-paste" class="paste-button" type="button" data-paste-target="decode-file" aria-label="Paste image from clipboard">Paste</button></div>
+      <p class="hint" id="decode-file-help">Choose an image with a hidden contact or paper message, or an ordinary contact or lxm:// paper QR. JPG or PNG, up to 20 MB. You can also paste an image.</p>
       <button id="decode-button" class="primary" type="submit">Decode image</button>
     </form>
     <p id="decode-status" class="status" role="status" aria-live="polite"></p>

@@ -287,6 +287,27 @@ textarea::placeholder {
 #contact-qr-input .hint:last-child {
   margin-bottom: 0;
 }
+.file-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.file-row input[type='file'] {
+  flex: 1;
+  min-width: 0;
+}
+.file-row .paste-button {
+  flex: none;
+}
+.photo-quality {
+  margin-top: 16px;
+}
+.photo-quality[hidden] {
+  display: none;
+}
+.photo-quality input[type='range'] {
+  margin-bottom: 4px;
+}
 .share-methods {
   margin: 28px 0;
 }
